@@ -394,6 +394,10 @@ test("a run is rebuilt from the journal and transcripts: roles, plan, tasks, ski
 	assert.match(report, /### t1-list \(worker, claude\)/);
 	assert.match(report, /\| 1 \| 10:00:50 \| 30s \| 5 \| 7 \| 0 \| Read \| test-driven-development \|/);
 	assert.match(reviewInstructions("/r.md", run.plan), /up to 5 recommendations/);
+	assert.match(
+		reviewInstructions("/r.md", run.plan),
+		/Append both to \/r\.md as "## Summary" and "## Recommendations"/,
+	);
 });
 
 test("/workflow ask carries the architecture, the catalog, this machine and the question", (t) => {
@@ -404,6 +408,8 @@ test("/workflow ask carries the architecture, the catalog, this machine and the 
 	assert.match(text, /`grilling` \| Matt Pocock/);
 	assert.match(text, /Backend: not set up/);
 	assert.match(text, /# Question\n\nhow are my skills organized\?/);
+	assert.match(text, /pi, which Faro runs on: .*pi-coding-agent \(README\.md, docs\/, examples\/extensions\/\)/);
+	assert.match(text, /Search the pi package above for its name/);
 });
 
 test("answers read as one line per question", () => {

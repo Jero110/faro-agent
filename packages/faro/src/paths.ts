@@ -21,6 +21,8 @@ export const EXTENSIONS = ["brand.ts", "ask.ts", "workflow.ts"].map((f) =>
 );
 
 /** pi's own CLI, from the pinned dependency (never a global pi). */
+/** The pi package Faro runs: its README, docs/ and examples/ (extensions, SDK) describe what pi can do. */
+export const PI_PACKAGE = dirname(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))));
 export const PI_CLI = join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "cli.js");
 
 export const FARO_VERSION: string = (

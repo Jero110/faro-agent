@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { agentLinkHome, hubPaths, readJournal } from "agent-link-core";
-import { faroPaths, REPO_ROOT, SKILLS_DIR } from "../paths.ts";
+import { faroPaths, PI_PACKAGE, REPO_ROOT, SKILLS_DIR } from "../paths.ts";
 import { readConfig } from "../setup.ts";
 import { catalogMarkdown, readCatalog } from "../workflow/catalog.ts";
 import { renderReport } from "../workflow/report.ts";
@@ -21,12 +21,13 @@ export const USAGE = "usage: /workflow review [--last] | /workflow ask <question
 
 export function reviewInstructions(reportFile: string, plan: string | undefined): string {
 	return [
-		`The report above is computed from the transcripts (saved at ${reportFile}). Now, without editing any file:`,
+		`The report above is computed from the transcripts (saved at ${reportFile}). Now:`,
 		"1. Summarize in 3-5 lines what this run did: tasks, which agent and harness did each, the skills used.",
 		"2. Write up to 5 recommendations to improve the workflow. Look at: skills that helped, were assigned but not loaded, or were missing;",
 		"   task split and parallelism; harness and model per task; brief quality (questions back, retries, tool errors); time and token waste",
 		"   (slow answers, large inputs, idle waits). For each: the change, the evidence (agent name and message #), and where to change it",
 		`   (a skill under ${SKILLS_DIR}, the plan${plan ? ` ${plan}` : ""}, or the executor's choices).`,
+		`3. Append both to ${reportFile} as "## Summary" and "## Recommendations", so the saved report has them. Edit no other file.`,
 		`The skills catalog is ${join(SKILLS_DIR, "catalog.json")}; read a skill or the plan when a recommendation depends on it.`,
 	].join("\n");
 }
@@ -78,6 +79,7 @@ export function askContext(question: string, env: NodeJS.ProcessEnv = process.en
 		`- Backend: ${config?.backend ?? "not set up (run faro setup)"}; MCP servers: agent-link${config?.backend === "cmux" ? ", cmux" : ""}`,
 		`- On PATH: ${harnessesOnPath(env).join(", ") || "none found"}`,
 		`- Repository: ${REPO_ROOT}`,
+		`- pi, which Faro runs on: ${PI_PACKAGE} (README.md, docs/, examples/extensions/)`,
 		report ? `- Last review report: ${report}` : "- No /workflow review report yet",
 		"",
 		"# Skills catalog",
@@ -89,9 +91,11 @@ export function askContext(question: string, env: NodeJS.ProcessEnv = process.en
 		question,
 		"",
 		"Answer from the context above and the files it names; say what you do not know. If the question names a tool, skill,",
-		"repository or link you do not know, research it first (launch an opencode agent with agent-link spawn to search the web,",
-		"or fetch the link), then give one verdict: we already have something better (name it, say why), it is about the same as",
-		"one of ours (name it), or it is worth trying (say exactly what to add or change, and on which past task to test it).",
+		"repository or link you do not know, research it first. Search the pi package above for its name (grep -ril): Faro",
+		"is pi, so a pi extension or example is the cheapest way to add a tool. Then launch an opencode agent with agent-link",
+		"spawn to search the web, or fetch the link. Then give one verdict: we already have something better (name it, say",
+		"why), it is about the same as one of ours (name it), or it is worth trying (say exactly what to add or change, and on",
+		"which past task to test it).",
 	].join("\n");
 }
 
