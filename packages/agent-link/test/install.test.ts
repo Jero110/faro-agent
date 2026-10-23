@@ -122,6 +122,30 @@ test("files install created are removed again; harnesses not found are skipped a
 	}
 });
 
+test("a harness on PATH that does not run (cmux's pi shim with no pi) is skipped, and the install goes on", () => {
+	const h = fakeHome(["claude", "codex"]);
+	try {
+		writeFileSync(
+			join(h.home, "bin", "pi"),
+			'#!/bin/sh\necho "Configured agent is unavailable. Install it or check the command configuration." >&2\nexit 1\n',
+		);
+		chmodSync(join(h.home, "bin", "pi"), 0o755);
+		const m = install({ home: h.home, env: h.env, backend: "cmux", command, out: h.out });
+		assert.ok(
+			h.lines.some((l) =>
+				/^pi: found at .* but it does not run \(Configured agent is unavailable\..*\), skipped$/.test(l),
+			),
+			h.lines.join("\n"),
+		);
+		assert.deepEqual(
+			m.steps.map((s) => s.harness).filter((x) => x !== "agents"),
+			["claude", "codex"],
+		);
+	} finally {
+		h.cleanup();
+	}
+});
+
 test("an opencode config with comments, or a Codex entry of the user's own, is left alone", () => {
 	const h = fakeHome([]);
 	try {

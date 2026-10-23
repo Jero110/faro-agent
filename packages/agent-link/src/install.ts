@@ -134,6 +134,17 @@ export function install(opts: InstallOptions): Manifest {
 			return false;
 		}
 	};
+	// A harness on PATH that does not run (e.g. the pi shim cmux puts in its terminals, with no pi behind it) is
+	// skipped, not fatal: the install goes on with the others. Returns why it failed, or undefined.
+	const tryRun = (argv: string[]): string | undefined => {
+		try {
+			run(argv);
+			return undefined;
+		} catch (e) {
+			const lines = (e instanceof Error ? e.message : String(e)).trim().split("\n");
+			return lines[lines.length - 1];
+		}
+	};
 	const steps: Step[] = [];
 	const cmdline = [command.command, ...command.args];
 	out(`${SERVER_NAME} install: backend ${backend}, MCP server "${SERVER_NAME}" = ${cmdline.join(" ")}`);
@@ -144,17 +155,20 @@ export function install(opts: InstallOptions): Manifest {
 		const file = join(home, ".claude.json");
 		const bak = backup(file);
 		run([claude, "mcp", "remove", "--scope", "user", SERVER_NAME], true);
-		run([claude, "mcp", "add", "--scope", "user", SERVER_NAME, "--", ...cmdline]);
-		steps.push({
-			harness: "claude",
-			kind: "cli",
-			undo: [claude, "mcp", "remove", "--scope", "user", SERVER_NAME],
-			file,
-			backup: bak,
-		});
-		out(
-			`claude: added user MCP server ${SERVER_NAME} (claude mcp add --scope user)${bak ? `; backup ${tilde(home, bak)}` : ""}`,
-		);
+		const failed = tryRun([claude, "mcp", "add", "--scope", "user", SERVER_NAME, "--", ...cmdline]);
+		if (failed) out(`claude: found at ${claude} but it does not run (${failed}), skipped`);
+		else {
+			steps.push({
+				harness: "claude",
+				kind: "cli",
+				undo: [claude, "mcp", "remove", "--scope", "user", SERVER_NAME],
+				file,
+				backup: bak,
+			});
+			out(
+				`claude: added user MCP server ${SERVER_NAME} (claude mcp add --scope user)${bak ? `; backup ${tilde(home, bak)}` : ""}`,
+			);
+		}
 	} else out("claude: not found on PATH, skipped");
 
 	// pi 1.3.0 has native MCP; `add` replaces an entry with the same name. Direct exposure: pi's default
@@ -163,11 +177,18 @@ export function install(opts: InstallOptions): Manifest {
 	if (pi) {
 		const file = join(home, ".pi", "agent", "mcp.json");
 		const bak = backup(file);
-		run([pi, "mcp", "add", SERVER_NAME, "--exposure", "direct", "--description", server.description, "--", ...cmdline]);
-		steps.push({ harness: "pi", kind: "cli", undo: [pi, "mcp", "remove", SERVER_NAME], file, backup: bak });
-		out(
-			`pi: added MCP server ${SERVER_NAME} (pi mcp add --exposure direct)${bak ? `; backup ${tilde(home, bak)}` : ""}`,
-		);
+		const failed = tryRun([
+			pi,
+			...["mcp", "add", SERVER_NAME, "--exposure", "direct", "--description", server.description, "--"],
+			...cmdline,
+		]);
+		if (failed) out(`pi: found at ${pi} but it does not run (${failed}), skipped`);
+		else {
+			steps.push({ harness: "pi", kind: "cli", undo: [pi, "mcp", "remove", SERVER_NAME], file, backup: bak });
+			out(
+				`pi: added MCP server ${SERVER_NAME} (pi mcp add --exposure direct)${bak ? `; backup ${tilde(home, bak)}` : ""}`,
+			);
+		}
 	} else out("pi: not found on PATH, skipped");
 
 	// Codex: a marked block in config.toml. env_vars lets the identity reach the server; approve mode keeps
