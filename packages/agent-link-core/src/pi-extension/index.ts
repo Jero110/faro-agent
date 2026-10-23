@@ -59,6 +59,24 @@ function toolTitle(event: ToolCallEvent): string {
 	return event.toolName;
 }
 
+/**
+ * Problem: /reload (and /new, /resume, /fork) tears this extension down and loads it again in the same process.
+ * Closing the socket on that shutdown made the adapter see pi as gone, the hub closed the agent and removed its run
+ * folder, and the new instance's listen() then failed with EACCES and crashed pi. Solution: only a quit closes the
+ * socket; any other shutdown leaves the server and its clients here, process-wide, for the next instance to take.
+ */
+interface Handover {
+	server: Server;
+	clients: Set<Socket>;
+	promptId: string | null;
+}
+const HANDOVER_KEY = Symbol.for("agent-link.pi-extension.handover");
+function handovers(): Map<string, Handover> {
+	const g = globalThis as { [HANDOVER_KEY]?: Map<string, Handover> };
+	g[HANDOVER_KEY] ??= new Map();
+	return g[HANDOVER_KEY];
+}
+
 function depthOf(env: NodeJS.ProcessEnv): number {
 	const depth = Number.parseInt(env.AGENT_LINK_DEPTH ?? "0", 10);
 	return Number.isFinite(depth) && depth > 0 ? depth : 0;
@@ -134,14 +152,51 @@ export function createAgentLinkExtension(env: NodeJS.ProcessEnv = process.env) {
 			rmSync(socketPath, { force: true });
 		};
 
+		/** Leaves the server and clients for the next instance of this extension, without this one's listeners. */
+		const handOver = () => {
+			if (!server) return;
+			server.removeAllListeners("connection");
+			for (const c of clients) {
+				c.removeAllListeners("data");
+				c.removeAllListeners("close");
+				c.removeAllListeners("error");
+				c.on("error", () => {});
+			}
+			handovers().set(socketPath, { server, clients: new Set(clients), promptId });
+			clients.clear();
+			server = undefined;
+		};
+
 		pi.on("session_start", (_event, c) => {
 			ctx = c;
 			if (server) return;
+			const kept = handovers().get(socketPath);
+			if (kept) {
+				handovers().delete(socketPath);
+				server = kept.server;
+				promptId = kept.promptId;
+				server.on("connection", onClient);
+				for (const socket of kept.clients) onClient(socket);
+				return;
+			}
 			rmSync(socketPath, { force: true });
-			server = createServer(onClient);
-			server.listen(socketPath, () => chmodSync(socketPath, 0o600));
+			const s = createServer(onClient);
+			server = s;
+			// A failed listen (e.g. the hub already closed this agent and removed its folder) must not crash pi.
+			s.on("error", () => {
+				if (server === s) server = undefined;
+			});
+			s.listen(socketPath, () => {
+				try {
+					chmodSync(socketPath, 0o600);
+				} catch {}
+			});
 		});
-		pi.on("session_shutdown", () => close());
+		pi.on("session_shutdown", (event) => {
+			const reason = (event as { reason?: string } | undefined)?.reason;
+			if (reason && reason !== "quit") handOver();
+			else close();
+		});
 
 		pi.on("agent_start", (_event, c) => {
 			ctx = c;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { createAgentLinkExtension, MESSAGE_TYPE } from "../src/pi-extension/index.ts";
 import { FakePi, LineClient, tempSocketPath, tick } from "./fixtures/pi/fake-pi.ts";
@@ -48,6 +49,34 @@ test("the socket is 0600, says idle on connect, and is removed on session_shutdo
 	await pi.emit("session_shutdown");
 	assert.equal(existsSync(path), false);
 	client.close();
+});
+
+test("/reload keeps the socket and its client: the next instance takes them over, and only a quit closes", async (t) => {
+	const { path, pi, client } = await started(t);
+	await pi.emit("session_shutdown", { reason: "reload" });
+	assert.ok(existsSync(path), "the socket stays across a reload");
+	const next = new FakePi();
+	createAgentLinkExtension({ AGENT_LINK_PI_SOCKET: path })(next.api);
+	const before = client.lines.length;
+	await next.emit("session_start", { reason: "reload" });
+	await client.waitFor(() => client.lines.slice(before).some((l) => l.type === "state"));
+	client.send({ type: "prompt", id: "r1", text: "after reload" });
+	await tick();
+	assert.equal(pi.sent.length, 0, "the old instance gets nothing");
+	assert.equal(next.sent.length, 1);
+	await next.emit("session_shutdown", { reason: "quit" });
+	assert.equal(existsSync(path), false);
+	client.close();
+});
+
+test("a socket folder that is gone (agent closed by the hub) does not crash pi", async () => {
+	const path = join(tempSocketPath(), "..", "gone", "pi.sock");
+	const pi = new FakePi();
+	createAgentLinkExtension({ AGENT_LINK_PI_SOCKET: path })(pi.api);
+	await pi.emit("session_start", { reason: "reload" });
+	await tick();
+	await tick();
+	await pi.emit("session_shutdown", { reason: "quit" });
 });
 
 test("a prompt while idle steers with triggerTurn, and the turn end carries its id and last text", async (t) => {
