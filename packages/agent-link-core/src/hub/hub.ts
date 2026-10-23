@@ -265,6 +265,7 @@ export class Hub {
 				title: `${name} · ${profile.label}`,
 				place: placeOf(caller.record, req, caller.place),
 			});
+			if (req.handoff) caller.handoff = { to: name, backend: req.backend };
 			this.log.agentPane(name, req.backend, record.pane);
 			this.journalUpdate(agent, { pane: record.pane, backend: req.backend });
 		} catch (e) {
@@ -319,6 +320,33 @@ export class Hub {
 		this.log.event(agent.record.name, "connected");
 		this.transition(agent, "connected");
 		this.pump(agent);
+		const parent = agent.record.parent ? this.registry.get(agent.record.parent) : undefined;
+		if (parent?.handoff?.to === agent.record.name) this.tryHandoff(parent);
+	}
+
+	/**
+	 * Closes an agent that handed off, alone, once the agent that takes over runs and its own turn has ended.
+	 * Problem: a planner that handed the plan to an executor stayed open next to it, and closing it closed its
+	 * whole tree. Example: the executor and its workers squeezed into half a screen, then moved to another
+	 * workspace because the splits were too small. Solution: spawn with handoff marks the caller; when the new agent
+	 * is connected and the caller is idle, the caller closes with its pane (a root's terminal too) and its tree
+	 * goes on. Messages to it from then on are dropped, as for any agent that exited.
+	 */
+	private tryHandoff(caller: Agent): void {
+		const h = caller.handoff;
+		if (!h || caller.handedOff || caller.closing) return;
+		const to = this.registry.get(h.to);
+		if (!to || to.closing || to.record.state === "exited") {
+			caller.handoff = undefined;
+			return;
+		}
+		// A pull root has no turns the hub sees (it stays "working"), so it hands off as soon as the new agent runs.
+		const state = caller.record.state;
+		const busy = !caller.record.pull && (state === "working" || state === "asking" || state === "starting");
+		if (!to.ready || busy) return;
+		caller.handedOff = true;
+		this.log.event(caller.record.name, "handed-off", { to: h.to });
+		void this.closeAgent(caller);
 	}
 
 	private newAgent(record: AgentRecord, profile: Profile | undefined): Agent {
@@ -539,6 +567,7 @@ export class Hub {
 			agent.record.state = to;
 			this.log.agentState(agent.record.name, to);
 			this.journalUpdate(agent, to === "exited" ? { state: to, endedAt: new Date().toISOString() } : { state: to });
+			if (agent.handoff && to === "done") this.tryHandoff(agent);
 		}
 		return true;
 	}
@@ -705,12 +734,14 @@ export class Hub {
 		agent.closing ??= (async () => {
 			const name = agent.record.name;
 			if (agent.retry) clearTimeout(agent.retry);
-			await Promise.all(
-				this.registry
-					.children(name)
-					.filter((c) => c.record.state !== "exited")
-					.map((c) => this.closeAgent(c)),
-			);
+			// An agent that handed off closes alone: the agent that took over, and its workers, go on.
+			if (!agent.handedOff)
+				await Promise.all(
+					this.registry
+						.children(name)
+						.filter((c) => c.record.state !== "exited")
+						.map((c) => this.closeAgent(c)),
+				);
 			const step = async (what: string, run: () => Promise<void> | undefined) => {
 				try {
 					await run();
@@ -722,6 +753,10 @@ export class Hub {
 			await step("close", () => agent.adapter?.close());
 			const { backend, pane } = agent.record;
 			if (backend && pane) await step("pane-close", () => this.opts.backends[backend]?.close(pane));
+			// A root's terminal is the user's and stays open, except when the root handed off.
+			const own = agent.handedOff && agent.handoff ? paneOfPlace(agent.place, agent.handoff.backend) : undefined;
+			const ownBackend = agent.handoff?.backend;
+			if (!pane && own && ownBackend) await step("pane-close", () => this.opts.backends[ownBackend]?.close(own));
 			if (agent.runDir) rmSync(agent.runDir, { recursive: true, force: true });
 			agent.queue = [];
 			this.transition(agent, "exited");
@@ -810,6 +845,14 @@ export function errorText(e: unknown): string {
  * of whichever pane started the hub; Codex's own root had none at all, since Codex filters its MCP env.
  * Solution: the hub knows the pane of every agent it opened and uses it first.
  */
+/** The pane ref of a root's terminal (RegisterRequest.place) for a backend. */
+export function paneOfPlace(place: PlaceHint | undefined, backend: BackendName): string | undefined {
+	if (!place) return undefined;
+	if (backend === "cmux") return place.surface;
+	if (!place.tmuxPane) return undefined;
+	return place.tmuxSocket ? `${place.tmuxPane}@${place.tmuxSocket}` : place.tmuxPane;
+}
+
 export function placeOf(caller: AgentRecord, req: SpawnRequest, registered?: PlaceHint): PlaceHint | undefined {
 	if (!caller.pane || caller.backend !== req.backend) return req.place ?? registered;
 	if (caller.backend === "cmux") return { surface: caller.pane };

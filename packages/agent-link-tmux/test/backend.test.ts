@@ -20,6 +20,10 @@ function setup(responses: Record<string, string> = {}) {
 	return { fake, backend: createTmuxBackend({ env: fake.env, launchDir }) };
 }
 
+/** The calls without the layout ones (main-pane-width, select-layout), for tests about something else. */
+const noLayout = (calls: string[][]) =>
+	calls.filter((c) => !c.includes("select-layout") && !c.includes("main-pane-width"));
+
 const opened = (calls: string[][]) =>
 	calls.filter((c) => ["split-window", "new-session", "new-window"].includes(c[0] ?? "")).map((c) => c.slice(0, -1));
 
@@ -28,7 +32,7 @@ test("inside tmux: the first worker splits right of the caller, the next ones be
 	const place = { tmuxPane: "%3" };
 	assert.equal(await backend.open(CMD, { title: "Claude · a", place }), "%11");
 	assert.equal(await backend.open(CMD, { title: "Pi · b", place }), "%12");
-	const calls = fake.calls();
+	const calls = noLayout(fake.calls());
 	assert.deepEqual(opened(calls), [
 		["split-window", "-d", "-h", "-t", "%3", "-P", "-F", "#{pane_id}"],
 		["split-window", "-d", "-v", "-t", "%11", "-P", "-F", "#{pane_id}"],
@@ -125,7 +129,7 @@ test("a place with tmuxSocket opens there, and every later call on that pane use
 	const calls = fake.calls();
 	// serverArgs never apply to a pane with its own socket.
 	assert.ok(calls.every((c) => c[0] === "-S" && c[1] === "/tmp/tmux-503/work"));
-	const cmds = calls.map((c) => c.slice(2));
+	const cmds = noLayout(calls).map((c) => c.slice(2));
 	assert.deepEqual(cmds[0]?.slice(0, 5), ["split-window", "-d", "-h", "-t", "%1"]);
 	assert.deepEqual(cmds[5]?.slice(0, 5), ["split-window", "-d", "-v", "-t", "%3"]);
 	const rest = cmds.slice(10).map((c) => c.filter((x) => !x.startsWith("agent-link-")));
@@ -135,6 +139,7 @@ test("a place with tmuxSocket opens there, and every later call on that pane use
 		["load-buffer", "-b", "-"],
 		["paste-buffer", "-p", "-d", "-b", "-t", "%3"],
 		["display-message", "-p", "-t", "%3", "#{pane_id}"],
+		["display-message", "-p", "-t", "%4", "#{window_id}"],
 		["kill-pane", "-t", "%4"],
 	]);
 });
@@ -159,7 +164,7 @@ test("the same pane id on two servers stays two panes, each stacked on its own s
 	await assert.rejects(backend.read("nonsense"), /bad pane ref/);
 });
 
-test("a split under 80x24 is killed before its harness starts; the agent opens in a new window after the caller's", async () => {
+test("a split under 40x13 is killed before its harness starts; the agent opens in a new window after the caller's", async () => {
 	const { fake, backend } = setup({
 		"display-message.1": "40 12\n",
 		"display-message.2": "@5\n",
@@ -168,7 +173,7 @@ test("a split under 80x24 is killed before its harness starts; the agent opens i
 	});
 	const place = { tmuxPane: "%3" };
 	assert.equal(await backend.open(CMD, { title: "a", place }), "%20");
-	const calls = fake.calls();
+	const calls = noLayout(fake.calls());
 	assert.deepEqual(calls[2], ["kill-pane", "-t", "%11"]);
 	assert.deepEqual(calls[3], ["display-message", "-p", "-t", "%3", "#{window_id}"]);
 	assert.deepEqual(calls[4]?.slice(0, -1), ["new-window", "-d", "-a", "-t", "@5", "-P", "-F", "#{pane_id}"]);
@@ -195,4 +200,19 @@ test("a new session or window is not size-checked: it has the whole window", asy
 		fake.calls().some((c) => c[0] === "kill-pane"),
 		false,
 	);
+});
+
+test("the caller's window keeps one column right of the first pane: main-vertical after every split and close", async () => {
+	const { fake, backend } = setup({ "display-message.3": "@7\n" });
+	const place = { tmuxPane: "%3" };
+	await backend.open(CMD, { title: "a", place });
+	await backend.open(CMD, { title: "b", place });
+	await backend.close("%11");
+	const layout = fake.calls().filter((c) => c.includes("select-layout") || c.includes("main-pane-width"));
+	assert.deepEqual(layout.slice(0, 2), [
+		["set-option", "-w", "-t", "%11", "main-pane-width", "50%"],
+		["select-layout", "-t", "%11", "main-vertical"],
+	]);
+	assert.deepEqual(layout.at(-1), ["select-layout", "-t", "@7", "main-vertical"], "after the close, on its window");
+	assert.equal(layout.length, 6);
 });

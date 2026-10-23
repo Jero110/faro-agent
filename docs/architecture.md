@@ -35,7 +35,14 @@ extensions.
   (`agent-link-cmux`, `agent-link-tmux`). The model never sees adapters.
 - **Adapters**, one per harness, each by its native path: Claude Code's messaging socket, Codex's app-server, opencode's
   HTTP server, pi's extension socket. A harness without one can use a `paste` profile.
-- **Pane backends**: open, close, read, keys, paste, alive. Workers open next to their parent, never stealing focus.
+- **Pane backends**: open, close, read, keys, paste, alive. A caller's workers form one column to its right (the
+  first split right of it, each next one below the last still open), never stealing focus and never as tabs; after
+  every open and close the layout evens out (cmux `workspace.equalize_splits`, tmux `main-vertical` with the main pane
+  at half the width). Opens run one at a time, so parallel spawns stack. A pane under 40x13, the least the harness
+  TUIs run in, opens in an "agent-link" workspace (cmux) or a new window after the caller's (tmux) instead.
+- **Handoff**: `spawn` with `handoff: true` (the planner opening the executor) closes the caller once the new agent is
+  connected and the caller's turn has ended, with its pane (a root's own terminal too), while the new agent and its
+  workers go on.
 - **Messages**: one FIFO queue per agent; the hub prompts an agent only when it is idle, so each message gets its own
   turn and result. A worker's first message is its task, as a person would write it, and its parent's messages arrive
   plain; a message from anyone else starts with `[agent-link] <name>:`. A worker's final answer reaches its parent as

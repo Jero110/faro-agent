@@ -36,6 +36,10 @@ the format; you rarely need it.
   `git worktree add ../<repo>-<task> -b faro/<task>` and pass it as the spawn `cwd`. Linear tasks work in the main
   checkout.
 - Results arrive by themselves as messages. After spawning, end your turn; never wait, sleep or poll `status`.
+- The planner handed off to you and its pane closed: you are the left pane, and agent-link stacks every agent you
+  spawn in one column to your right, at even heights, never as tabs. Keep that column short: once a task's result is
+  verified (Step 2), `cancel` its agent so its pane closes and the others grow back. Keep an agent only while you
+  still need it (a fix it should make, a question about its work).
 
 The brief for each agent. Send it inline; when it is long, write it inside the project
 (`docs/plans/<slug>-briefs/<T-id>.md`) and pass that path: agents in other harnesses may stop at a permission prompt
@@ -88,7 +92,9 @@ Your final answer, the only long message:
 - **Assumptions:** every `ASSUMED:` line.
 - **Gaps:** what did not pass, and why.
 
-Then stop. Do not start post-build or extra skills; the user invokes those if they want them.
+Your pane is the user's now (the planner closed), so the report is for them. Close every agent still open with
+`cancel`, end with one line: "`/workflow review` shows what ran, with which skills, tokens and time." Then stop. Do
+not start post-build or extra skills; the user invokes those if they want them.
 
 ## Red flags
 

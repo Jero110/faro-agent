@@ -19,4 +19,5 @@ export * from "./mcp/server.ts";
 export * from "./mcp/tools.ts";
 export * from "./paths.ts";
 export * from "./profiles.ts";
+export * from "./serial-opens.ts";
 export * from "./types.ts";

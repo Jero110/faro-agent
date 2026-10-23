@@ -52,6 +52,11 @@ export function toolDefs(opts: { harnesses: readonly string[]; pull: boolean }):
 					},
 					name: { type: "string", description: "Short name for the worker, e.g. auth, reviewer; default: the harness" },
 					cwd: { type: "string", description: "The worker's folder; default: yours" },
+					handoff: {
+						type: "boolean",
+						description:
+							"true when the new agent takes over your work (a planner handing the plan to an executor): once it runs and your turn ends, your pane closes; its workers and its results stay with it",
+					},
 				},
 				required: ["harness", "task"],
 			},
@@ -119,8 +124,12 @@ export function errorReply(message: string): ToolReply {
 	return text(message, true);
 }
 
-export function spawnReply(res: { name: string } | { error: string }, pull: boolean): ToolReply {
+export function spawnReply(res: { name: string } | { error: string }, pull: boolean, handoff = false): ToolReply {
 	if ("error" in res) return text(`not spawned: ${res.error}`, true);
+	if (handoff)
+		return text(
+			`spawned ${res.name}, which takes over. Tell the user in one or two lines what ${res.name} does next and end your turn; this pane closes then.`,
+		);
 	const later = pull
 		? "Its final answer waits in the hub for inbox()."
 		: "Its final answer arrives as a new message after your turn ends. Tell the user what is running and end your turn.";

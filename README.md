@@ -135,6 +135,20 @@ task, the agent, harness and model, its skills, what can run in parallel and wha
 The **executor** never asks you anything: it decides, records its assumptions, runs every task on the agent the plan
 names, verifies, integrates, and reports. No skill fixes a model; the plan does, from what you asked for.
 
+**The layout** is the same in cmux and in tmux, in the window you started in, with no tabs: when the executor takes
+over, the planner's pane closes and the executor stays on the left at full height; every agent it launches opens in
+one column to its right, the column split evenly, and it closes up again as the executor closes finished agents.
+
+```
+┌──────────────┬──────────────┐
+│              │ w1 · opencode│
+│              ├──────────────┤
+│   executor   │ w2 · codex   │
+│              ├──────────────┤
+│              │ w3 · claude  │
+└──────────────┴──────────────┘
+```
+
 ## Self-learning
 
 ```mermaid
@@ -217,7 +231,7 @@ extension socket), never by typing into the screen.
 
 | Tool | What it does |
 | --- | --- |
-| `spawn` | Opens a worker of a harness (claude, codex, opencode, pi, faro) with a task, a model and a folder, next to the caller's pane. Returns at once. |
+| `spawn` | Opens a worker of a harness (claude, codex, opencode, pi, faro) with a task, a model and a folder, in the column right of the caller's pane. Returns at once. With `handoff: true` the new agent takes over: the caller's pane closes once its turn ends. |
 | `send` | Sends a message to the caller's parent or one of its workers. A parent's message reads like the user's. |
 | `reply` | Sets the result explicitly; otherwise the last answer of the turn is the result. |
 | `status` | The tree of agents and their state: starting, working, asking, done, exited. |

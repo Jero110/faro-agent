@@ -17,6 +17,8 @@ export interface SpawnRequest {
 	place?: { workspace?: string; surface?: string; tmuxPane?: string };
 	/** Folders outside cwd the worker may read (READ_DIRS_ENV). */
 	read?: string[];
+	/** The new agent takes over: once it runs and the caller's turn has ended, the caller's pane closes. */
+	handoff?: boolean;
 }
 
 /** How the agent-link MCP server starts, per backend. */

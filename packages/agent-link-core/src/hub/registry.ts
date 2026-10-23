@@ -1,6 +1,6 @@
 // The tree of agents the hub runs: names, parents, who may talk to whom and what status shows to whom.
 // The hub keeps it in memory; the event log (src/log.ts) keeps its history.
-import type { AgentAdapter, AgentRecord, PlaceHint, Profile } from "../types.ts";
+import type { AgentAdapter, AgentRecord, BackendName, PlaceHint, Profile } from "../types.ts";
 import type { QueuedMessage } from "./queue.ts";
 
 /** One agent as the hub tracks it: its record plus what the queue and result routing need. */
@@ -37,6 +37,10 @@ export interface Agent {
 	closing?: Promise<void>;
 	/** Timer that retries delivery while the adapter is not idle. */
 	retry?: ReturnType<typeof setTimeout>;
+	/** spawn with handoff: the agent that takes over, and the backend of this agent's pane. */
+	handoff?: { to: string; backend: BackendName };
+	/** Handed off: it closed with its pane, and its tree went on. */
+	handedOff?: boolean;
 }
 
 export class Registry {

@@ -1,12 +1,17 @@
 // tmux pane backend: each agent runs in a tmux pane next to the agent that spawned it, or, when the caller is not
 // inside tmux, in a window of the detached session "agent-link" that the user can attach to.
 //
+// Layout: everything stays in the caller's window. A caller's agents form one column to its right (the first split
+// right of the caller, each next one below the last still open), and after every open and close the window takes
+// tmux's main-vertical layout with the main pane at half the width: the first pane (the executor, once the planner
+// handed off and closed) on the left at full height, the others stacked on the right at even heights.
+//
 // Problem: a split in a crowded window can be too small for a harness TUI. Example: opencode 1.19.3 segfaults
-// (Bun panic) in a 22x7 pane, and a third split of an 80-column window is narrower than that. Solution: the pane
-// first runs a gate that waits for its launch script; the backend reads the pane's size (#{pane_width},
-// #{pane_height}) and, under 80x24, kills the pane before the harness ever starts (a second start would reuse a
-// Claude --session-id or an opencode port) and opens the agent in a new window right after the caller's window,
-// in the caller's session. Then the launch script appears and the gate runs it.
+// (Bun panic) in a 22x7 pane. Solution: the pane first runs a gate that waits for its launch script; once the
+// layout is applied the backend reads the pane's size (#{pane_width}, #{pane_height}) and, under 40x13, kills the
+// pane before the harness ever starts (a second start would reuse a Claude --session-id or an opencode port) and
+// opens the agent in a new window right after the caller's window, in the caller's session. Then the launch script
+// appears and the gate runs it.
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -17,6 +22,7 @@ import {
 	type PaneBackend,
 	type PaneCommand,
 	type PlaceHint,
+	serialOpens,
 	shellQuote,
 	writeLaunchScript,
 } from "agent-link-core";
@@ -32,7 +38,7 @@ export interface TmuxBackendOptions {
 	/** Where launch scripts go (tests). */
 	launchDir?: string;
 	timeoutMs?: number;
-	/** Smallest pane an agent may run in. Default 80x24. */
+	/** Smallest pane an agent may run in. Default 40x13. */
 	minSize?: { cols: number; rows: number };
 }
 
@@ -83,7 +89,7 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 	const session = opts.session ?? "agent-link";
 	const timeout = opts.timeoutMs ?? 10_000;
 	const launchDir = opts.launchDir ?? DEFAULT_LAUNCH_DIR;
-	const min = opts.minSize ?? { cols: 80, rows: 24 };
+	const min = opts.minSize ?? { cols: 40, rows: 13 };
 
 	// Problem: pane ids are unique only within one tmux server. Example: two servers on sockets a and b both
 	// answered `new-session -P -F '#{pane_id}'` with %0, so a pane id alone could send keys to the wrong pane.
@@ -156,13 +162,21 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 		return paneId(await tmux(socket, ["new-window", "-d", "-t", `=${session}:`, ...fmt, command]), "new-window");
 	}
 
+	/** One column right of the first pane, even heights; best effort, since the layout is cosmetic. */
+	async function arrange(socket: string | undefined, target: string): Promise<void> {
+		try {
+			await tmux(socket, ["set-option", "-w", "-t", target, "main-pane-width", "50%"]);
+			await tmux(socket, ["select-layout", "-t", target, "main-vertical"]);
+		} catch {}
+	}
+
 	async function small(socket: string | undefined, pane: string): Promise<boolean> {
 		const out = await tmux(socket, ["display-message", "-p", "-t", pane, "#{pane_width} #{pane_height}"]);
 		const [cols, rows] = out.trim().split(/\s+/).map(Number);
 		return !!cols && !!rows && (cols < min.cols || rows < min.rows);
 	}
 
-	return {
+	const backend: PaneBackend = {
 		name: "tmux",
 		async open(cmd: PaneCommand, o: { title: string; place?: PlaceHint }) {
 			// The gate execs the launch script, which execs the harness: the pane closes when the harness exits.
@@ -192,6 +206,7 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 			// Only a split can be too small: a new session or window has the whole window.
 			const from = below ? parse(below).pane : o.place?.tmuxPane;
 			let id = pane;
+			if (from) await arrange(socket, pane);
 			if (from && (await small(socket, pane))) {
 				await tmux(socket, ["kill-pane", "-t", pane]);
 				path = gatePath();
@@ -210,13 +225,19 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 			return ref;
 		},
 		async close(ref) {
+			const { pane, socket } = parse(ref);
+			const win = await tmux(socket, ["display-message", "-p", "-t", pane, "#{window_id}"]).then(
+				(out) => out.trim(),
+				() => "",
+			);
 			try {
-				const { pane, socket } = parse(ref);
 				await tmux(socket, ["kill-pane", "-t", pane]);
 			} catch (err) {
 				// The harness may have exited first, which closes the pane itself.
 				if (await alive(ref)) throw err;
 			}
+			// The rest of the window closes up: the column keeps even heights.
+			if (/^@\d+$/.test(win)) await arrange(socket, win);
 			for (const [k, stack] of stacks) {
 				const rest = stack.filter((r) => r !== ref);
 				if (rest.length) stacks.set(k, rest);
@@ -246,4 +267,5 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 		},
 		alive,
 	};
+	return serialOpens(backend);
 }

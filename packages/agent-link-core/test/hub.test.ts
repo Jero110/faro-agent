@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn as spawnProcess } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { request } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createHubClient } from "../src/client.ts";
@@ -90,6 +91,77 @@ test("spawn: the caller's read folders reach the worker's spec and env, so its o
 		assert.deepEqual(fake.spec?.readDirs, ["/skills", "/refs"]);
 		assert.equal(fake.spec?.env[READ_DIRS_ENV], "/skills:/refs");
 		assert.deepEqual(readDirsFromEnv({ [READ_DIRS_ENV]: "/skills::/refs" }), ["/skills", "/refs"]);
+	}));
+
+test("handoff: once the new agent runs and the caller's turn ends, the caller closes alone and its tree goes on", () =>
+	withHub(async (t) => {
+		const root = await pullRoot(t.client);
+		const planner = await spawned(t, root, "pi", "planner");
+		const p = await waitFor(() => t.kit.byName(planner), "planner adapter");
+		await waitFor(() => p.inTurn, "planner turn");
+		const res = await t.client.spawn({
+			from: planner,
+			harness: "claude",
+			task: "run the plan",
+			name: "executor",
+			backend: "cmux",
+			handoff: true,
+		});
+		assert.deepEqual(res, { name: "executor" });
+		const e = await waitFor(() => t.kit.byName("executor"), "executor adapter");
+		await waitFor(() => e.inTurn, "executor brief turn");
+		assert.equal(state(t, planner), "working", "the planner's own turn is not cut short");
+
+		p.finish("handed off to executor");
+		await waitFor(() => state(t, planner) === "exited", "planner closed");
+		assert.ok(t.backend.closed.has(p.pane?.ref ?? "?"), "the planner's pane closed");
+		assert.equal(state(t, "executor"), "working", "the executor goes on");
+		const w = await t.client.spawn({ from: "executor", harness: "pi", task: "t1", name: "t1", backend: "cmux" });
+		assert.deepEqual(w, { name: "t1" }, "and still spawns its workers");
+		e.finish("done");
+		await waitFor(() => state(t, "executor") === "done", "executor done");
+	}));
+
+test("handoff from a root closes the root's own terminal, named by its registered place", () =>
+	withHub(async (t) => {
+		const reg = await t.client.register({
+			harness: "codex",
+			cwd: tmpdir(),
+			pull: true,
+			backend: "cmux",
+			place: { surface: "surface:42" },
+		});
+		assert.ok("name" in reg);
+		if (!("name" in reg)) return;
+		await t.client.spawn({
+			from: reg.name,
+			harness: "claude",
+			task: "run the plan",
+			name: "executor",
+			backend: "cmux",
+			handoff: true,
+		});
+		await waitFor(() => state(t, reg.name) === "exited", "root closed once the executor connected");
+		assert.ok(t.backend.closed.has("surface:42"));
+		assert.notEqual(state(t, "executor"), "exited");
+	}));
+
+test("without handoff a root's terminal is never closed", () =>
+	withHub(async (t) => {
+		const reg = await t.client.register({
+			harness: "codex",
+			cwd: tmpdir(),
+			pull: true,
+			backend: "cmux",
+			place: { surface: "surface:43" },
+		});
+		if (!("name" in reg)) return;
+		await t.client.spawn({ from: reg.name, harness: "claude", task: "x", backend: "cmux" });
+		await waitFor(() => t.kit.byName("claude")?.inTurn, "worker turn");
+		await t.client.cancel({ from: reg.name, name: "claude" });
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(t.backend.closed.has("surface:43"), false);
+		assert.notEqual(state(t, reg.name), "exited");
 	}));
 
 test("spawn errors say what exists: unknown harness, caller, backend; a failed pane closes the adapter", () =>

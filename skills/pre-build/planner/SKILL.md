@@ -153,7 +153,8 @@ Do not hand off on "sounds good" or silence: wait for the explicit choice.
 
 Launch the executor with agent-link `spawn`:
 
-- `harness: "faro"`, `name: "executor"`, `model`: the user's choice for the executor, else leave it unset.
+- `harness: "faro"`, `name: "executor"`, `handoff: true`, `model`: the user's choice for the executor, else leave
+  it unset.
 - `task`:
 
   ```
@@ -162,11 +163,10 @@ Launch the executor with agent-link `spawn`:
   do not ask the user anything.
   ```
 
-Tell the user in two lines: the executor runs in its own pane, its final report will arrive here, and `/workflow
-review` shows afterwards what ran, with which skills, tokens and time. Then end your turn.
-
-When the executor's report arrives, relay it in a few lines. Do not start post-build or extra skills: the user invokes
-them if they want.
+`handoff: true` makes the executor take over: once it runs and your turn ends, agent-link closes this pane, the
+executor stays on the left, and its agents stack to its right. Tell the user in two lines: the executor takes over
+from here and reports in its own pane, and `/workflow review` there shows afterwards what ran, with which skills,
+tokens and time. Then end your turn. Do not start post-build or extra skills: the user invokes them if they want.
 
 ## Red flags
 

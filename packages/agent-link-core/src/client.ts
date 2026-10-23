@@ -40,6 +40,7 @@ export interface HubClient {
 		place?: PlaceHint;
 		/** Default: the caller's READ_DIRS_ENV. */
 		read?: string[];
+		handoff?: boolean;
 	}): Promise<ErrorOr<{ name: string }>>;
 	send(body: { from: string; to: string; message: string; id?: string }): Promise<SendResult>;
 	reply(body: { from: string; result: string }): Promise<{ ok: boolean; error?: string }>;

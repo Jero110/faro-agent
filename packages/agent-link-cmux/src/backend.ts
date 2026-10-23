@@ -8,14 +8,21 @@
 // closed the user's own pane. Solution: those variables are removed from the env of every cmux call, and every
 // call passes its target.
 //
-// Problem: a split in a crowded workspace can be too small for a harness TUI. Example: in a workspace with four
-// agent panes the right split was 26x16, and opencode 1.19.3 segfaults (Bun panic) below about 40x13.
-// Solution: every pane first runs a gate that writes its own size (`stty size`) and waits for its launch script.
-// cmux reports no pane size (`tree --json` has tty null for surfaces started with --command), so the pane's
-// own terminal is the source. A pane under 80x24 is closed before the harness ever starts (a second start would
-// reuse a Claude --session-id or an opencode port) and the agent opens where there is room: the caller
-// workspace's "agent-link" workspace, created once without focus and reused, agents stacked down as in splits;
-// a split there that is still too small becomes a tab in the pane it came from.
+// Layout: a caller's agents form one column to its right, the first split right of the caller and each next one
+// below the last still open; after every open and close the workspace's splits are equalized, so the column's
+// panes share its height evenly. Agents never open as tabs.
+//
+// Problem: a split in a crowded workspace can be too small for a harness TUI. Example: opencode 1.19.3 segfaults
+// (Bun panic) below about 40x13. Solution: every pane first runs a gate that writes its own size (`stty size`)
+// once the splits are equalized, and waits for its launch script. cmux reports no pane size (`tree --json` has tty
+// null for surfaces started with --command), so the pane's own terminal is the source. A pane under 40x13, or a
+// workspace with no space left, sends the agent to the caller workspace's "agent-link" workspace, created once
+// without focus and reused, agents stacked down there the same way. The pane is closed before the harness starts
+// (a second start would reuse a Claude --session-id or an opencode port).
+//
+// Problem: the minimum used to be 80x24. Example: an executor split right of a planner in a laptop window was under
+// 80 columns, so it and all its workers went to the agent-link workspace, some as tabs, and the user lost them.
+// Solution: the minimum is what the harnesses need to run (40x13), and the planner's pane closes on handoff.
 
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -26,6 +33,7 @@ import {
 	type PaneBackend,
 	type PaneCommand,
 	type PlaceHint,
+	serialOpens,
 	shellQuote,
 	writeLaunchScript,
 } from "agent-link-core";
@@ -37,7 +45,7 @@ export interface CmuxBackendOptions {
 	/** Where launch scripts go (tests). */
 	launchDir?: string;
 	timeoutMs?: number;
-	/** Smallest pane an agent may run in. Default 80x24. */
+	/** Smallest pane an agent may run in. Default 40x13. */
 	minSize?: { cols: number; rows: number };
 	/** How long to wait for a new pane to report its size before keeping it as it is. */
 	sizeTimeoutMs?: number;
@@ -60,6 +68,8 @@ interface Gate {
 export function gateCommand(path: string): string {
 	const p = shellQuote(path);
 	const script = [
+		// The backend equalizes the splits right after it opens the pane; the size is read after that.
+		"sleep 0.3",
 		`stty size > ${p}.tmp 2>/dev/null && mv ${p}.tmp ${p}.size`,
 		"i=0",
 		`while [ ! -e ${p} ]; do i=$((i+1)); [ "$i" -gt 1200 ] && exit 1; sleep 0.05; done`,
@@ -76,7 +86,7 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 	for (const k of DEFAULT_ENV_VARS) delete env[k];
 	const timeout = opts.timeoutMs ?? 10_000;
 	const launchDir = opts.launchDir ?? DEFAULT_LAUNCH_DIR;
-	const min = opts.minSize ?? { cols: 80, rows: 24 };
+	const min = opts.minSize ?? { cols: 40, rows: 13 };
 
 	const cmux = (...args: string[]) =>
 		new Promise<string>((resolve, reject) => {
@@ -117,31 +127,16 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 	/** Lets the gate start the harness: the launch script appears at the path the gate waits for. */
 	const release = (gate: Gate, cmd: PaneCommand) => renameSync(writeLaunchScript(cmd, launchDir), gate.path);
 
-	async function paneOf(workspace: string | undefined, surface: string): Promise<string | undefined> {
-		const ws = workspace ? ["--workspace", workspace] : [];
-		const id = JSON.parse(await cmux("identify", ...ws, "--surface", surface)) as { caller?: { pane_ref?: string } };
-		return id.caller?.pane_ref;
-	}
-
-	async function tab(workspace: string | undefined, from: string, command: string) {
-		const pane = await paneOf(workspace, from);
-		if (!pane) throw new Error(`cmux backend: no pane for ${from}`);
-		const ws = workspace ? ["--workspace", workspace] : [];
-		const args = ["new-surface", "--type", "terminal", "--pane", pane, ...ws, "--focus", "false", "--command", command];
-		return parseSurface(await cmux(...args), "new-surface");
-	}
-
-	/** Opens the agent where there is room, after a pane in `tried` (split from `from`) was too small. */
-	async function roomy(tried: string | undefined, from: string, gate: Gate) {
-		// Already in an overflow workspace: a tab in the pane it came from has that whole pane.
-		if (tried && overflow.has(tried)) return { ...(await tab(tried, from, gate.command)), workspace: tried };
+	/**
+	 * Opens the agent in the agent-link workspace of the workspace it did not fit in (created once, reused), below
+	 * the last agent there. Undefined when `tried` is that workspace already: the agent then stays where it is.
+	 */
+	async function roomy(tried: string | undefined, gate: Gate) {
+		if (tried && overflow.has(tried)) return undefined;
 		const key = tried ?? "";
 		const existing = overflowOf.get(key);
 		const last = existing ? overflow.get(existing)?.at(-1) : undefined;
-		if (existing && last) {
-			const made = await split("down", existing, last, gate.command);
-			return { ...made, workspace: existing, from: last };
-		}
+		if (existing && last) return { ...(await split("down", existing, last, gate.command)), workspace: existing };
 		const out = await cmux(
 			"new-workspace",
 			"--name",
@@ -164,6 +159,29 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 		return { ref, workspace };
 	}
 
+	/**
+	 * The workspace of a surface this backend did not open, from cmux's tree (by ref or by id).
+	 * Problem: closing a root's own terminal on handoff failed with "close-surface requires --workspace or --window
+	 * with explicit --surface", since only the surface was known. Solution: look its workspace up first.
+	 */
+	async function findWorkspace(surface: string): Promise<string | undefined> {
+		const tree = JSON.parse(await cmux("tree", "--all", "--json", "--id-format", "both")) as {
+			windows?: Array<{
+				workspaces?: Array<{ ref?: string; panes?: Array<{ surface_refs?: string[]; surface_ids?: string[] }> }>;
+			}>;
+		};
+		for (const w of tree.windows?.flatMap((x) => x.workspaces ?? []) ?? [])
+			for (const pane of w.panes ?? [])
+				if (pane.surface_refs?.includes(surface) || pane.surface_ids?.includes(surface)) return w.ref;
+		return undefined;
+	}
+
+	/** Gives the workspace's splits even sizes; best effort, since the layout is cosmetic. */
+	async function equalize(workspace: string | undefined): Promise<void> {
+		if (!workspace) return;
+		await cmux("rpc", "workspace.equalize_splits", JSON.stringify({ workspace_id: workspace })).catch(() => undefined);
+	}
+
 	const where = (ref: string) => {
 		const ws = workspaceOf.get(ref);
 		return ws ? ["--workspace", ws, "--surface", ref] : ["--surface", ref];
@@ -178,21 +196,16 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 	async function split(direction: "right" | "down", workspace: string | undefined, from: string, command: string) {
 		const ws = workspace ? ["--workspace", workspace] : [];
 		const args = ["new-split", direction, ...ws, "--surface", from, "--focus", "false", "--command", command];
-		try {
-			return parseSurface(await cmux(...args), "new-split");
-		} catch (err) {
-			// Problem: a workspace with many panes refuses another split. Example: with seven panes open,
-			// `cmux new-split right` answered "no_space: No space for new pane". Solution: open the agent as a
-			// new tab in the pane that holds `from`, still without focus.
-			if (!String(err).includes("no_space")) throw err;
-			return tab(workspace, from, command);
-		}
+		return parseSurface(await cmux(...args), "new-split");
 	}
+
+	// A workspace with many panes refuses another split: "no_space: No space for new pane".
+	const noSpace = (err: unknown) => String(err).includes("no_space");
 
 	const small = (size: { cols: number; rows: number } | undefined) =>
 		size !== undefined && (size.cols < min.cols || size.rows < min.rows);
 
-	return {
+	const backend: PaneBackend = {
 		name: "cmux",
 		async open(cmd: PaneCommand, o: { title: string; place?: PlaceHint }) {
 			const caller = o.place?.surface;
@@ -202,22 +215,37 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 			let gate = newGate();
 			const from = below ?? caller;
 			const triedWs = (below ? workspaceOf.get(below) : undefined) ?? o.place?.workspace;
-			let made: { ref: string; workspace?: string } = await split(
-				below ? "down" : "right",
-				triedWs,
-				from,
-				gate.command,
-			);
+			let made: { ref: string; workspace?: string };
+			try {
+				made = await split(below ? "down" : "right", triedWs, from, gate.command);
+			} catch (err) {
+				if (!noSpace(err)) throw err;
+				const moved = await roomy(triedWs, gate);
+				if (!moved) throw err;
+				made = moved;
+			}
 			let workspace = made.workspace ?? triedWs;
-			// Up to two moves: to the overflow workspace, then to a tab in the pane the last split came from.
-			let source = from;
-			for (let moves = 0; moves < 2 && small(await gateSize(gate)); moves++) {
-				await cmux("close-surface", ...(workspace ? ["--workspace", workspace] : []), "--surface", made.ref, "--force");
-				gate = newGate();
-				const next: { ref: string; workspace: string; from?: string } = await roomy(workspace, source, gate);
-				made = next;
-				workspace = next.workspace;
-				source = next.from ?? source;
+			await equalize(workspace);
+			if (small(await gateSize(gate))) {
+				const next = newGate();
+				const moved = await roomy(workspace, next).catch((err: unknown) => {
+					if (noSpace(err)) return undefined;
+					throw err;
+				});
+				if (moved) {
+					await cmux(
+						"close-surface",
+						...(workspace ? ["--workspace", workspace] : []),
+						"--surface",
+						made.ref,
+						"--force",
+					);
+					await equalize(workspace);
+					gate = next;
+					made = moved;
+					workspace = moved.workspace;
+					await equalize(workspace);
+				}
 			}
 			release(gate, cmd);
 			if (workspace) workspaceOf.set(made.ref, workspace);
@@ -227,7 +255,8 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 			return made.ref;
 		},
 		async close(ref) {
-			const ws = workspaceOf.get(ref);
+			const ws = workspaceOf.get(ref) ?? (await findWorkspace(ref).catch(() => undefined));
+			if (ws) workspaceOf.set(ref, ws);
 			const alone = ws !== undefined && overflow.get(ws)?.length === 1 && overflow.get(ws)?.[0] === ref;
 			try {
 				// Problem: cmux refuses to close the last surface of a workspace. Example: closing the only agent
@@ -241,6 +270,7 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 				if (await this.alive(ref)) throw err;
 			}
 			workspaceOf.delete(ref);
+			if (ws && !alone) await equalize(ws);
 			for (const [ws, refs] of overflow) {
 				const rest = refs.filter((r) => r !== ref);
 				overflow.set(ws, rest);
@@ -272,4 +302,5 @@ export function createCmuxBackend(opts: CmuxBackendOptions = {}): PaneBackend {
 				() => false,
 			),
 	};
+	return serialOpens(backend);
 }

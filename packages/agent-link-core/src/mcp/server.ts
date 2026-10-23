@@ -152,8 +152,10 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
 								cwd: str("cwd"),
 								backend: opts.backend,
 								place,
+								handoff: args.handoff === true,
 							}),
 							s.pull,
+							args.handoff === true,
 						),
 						s.pull,
 					);

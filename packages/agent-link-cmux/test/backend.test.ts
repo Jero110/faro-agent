@@ -139,26 +139,47 @@ test("alive follows read-screen; closing a surface that is already gone is not a
 	await assert.rejects(live.close("surface:5"), /something else/);
 });
 
-test("a full workspace opens the worker as a new tab in the caller's pane", async () => {
+test("a full workspace opens the worker in the agent-link workspace, never as a tab", async () => {
 	const { fake, backend } = setup({
 		"new-split.1.err": "Error: no_space: No space for new pane\n",
-		identify: JSON.stringify({ caller: { pane_ref: "pane:4", surface_ref: "surface:1" } }),
-		"new-surface": "OK surface:21 pane:4 workspace:9\n",
+		"new-workspace": "OK workspace:30\n",
+		tree: JSON.stringify({
+			windows: [{ workspaces: [{ ref: "workspace:30", panes: [{ surface_refs: ["surface:30"] }] }] }],
+		}),
 	});
-	assert.equal(await backend.open(CMD, { title: "a", place: PLACE }), "surface:21");
-	const call = fake.calls().find((c) => c[0] === "new-surface");
-	assert.deepEqual(call?.slice(0, 10), [
-		"new-surface",
-		"--type",
-		"terminal",
-		"--pane",
-		"pane:4",
-		"--workspace",
-		"workspace:9",
-		"--focus",
-		"false",
-		"--command",
-	]);
+	assert.equal(await backend.open(CMD, { title: "a", place: PLACE }), "surface:30");
+	assert.equal(
+		fake.calls().some((c) => c[0] === "new-surface"),
+		false,
+	);
+});
+
+test("after every open and close the workspace's splits are equalized, so the column shares its height", async () => {
+	const { fake, backend } = setup();
+	await backend.open(CMD, { title: "a", place: PLACE });
+	await backend.open(CMD, { title: "b", place: PLACE });
+	await backend.close("surface:11");
+	const rpcs = fake.calls().filter((c) => c[0] === "rpc");
+	assert.equal(rpcs.length, 3);
+	assert.deepEqual(rpcs[0], ["rpc", "workspace.equalize_splits", JSON.stringify({ workspace_id: "workspace:9" })]);
+});
+
+test("closing a surface it did not open (a root's own terminal) finds its workspace in cmux's tree first", async () => {
+	const { fake, backend } = setup({
+		tree: JSON.stringify({
+			windows: [
+				{
+					workspaces: [
+						{ ref: "workspace:5", panes: [{ surface_refs: ["surface:50"], surface_ids: ["AB-CD"] }] },
+						{ ref: "workspace:6", panes: [{ surface_refs: ["surface:60"], surface_ids: ["EF-01"] }] },
+					],
+				},
+			],
+		}),
+	});
+	await backend.close("EF-01");
+	const close = fake.calls().find((c) => c[0] === "close-surface");
+	assert.deepEqual(close, ["close-surface", "--workspace", "workspace:6", "--surface", "EF-01", "--force"]);
 });
 
 test("open without the caller's surface fails instead of guessing", async () => {
@@ -166,7 +187,7 @@ test("open without the caller's surface fails instead of guessing", async () => 
 	await assert.rejects(backend.open(CMD, { title: "a" }), /place.surface/);
 });
 
-test("a split under 80x24 is closed before its harness starts; the agent opens in the agent-link workspace", async () => {
+test("a split under 40x13 is closed before its harness starts; the agent opens in the agent-link workspace", async () => {
 	const { fake, backend } = setup(
 		{
 			"new-split.1": "OK surface:11 workspace:9\n",
@@ -219,7 +240,7 @@ test("a split under 80x24 is closed before its harness starts; the agent opens i
 	]);
 });
 
-test("a split in the agent-link workspace that is still too small becomes a tab in the pane it came from", async () => {
+test("a split in the agent-link workspace that is still small stays there: no tab, no second move", async () => {
 	const { fake, backend } = setup(
 		{
 			"new-split.1": "OK surface:11 workspace:9\n",
@@ -228,35 +249,17 @@ test("a split in the agent-link workspace that is still too small becomes a tab 
 			tree: JSON.stringify({
 				windows: [{ workspaces: [{ ref: "workspace:30", panes: [{ surface_refs: ["surface:30"] }] }] }],
 			}),
-			identify: JSON.stringify({ caller: { pane_ref: "pane:7" } }),
-			"new-surface": "OK surface:32 pane:7 workspace:30\n",
 		},
-		["16 26", "50 200", "20 200", "50 200"],
+		["10 26", "50 200", "10 30"],
 	);
 	await backend.open(CMD, { title: "a", place: PLACE });
-	assert.equal(await backend.open(CMD, { title: "b", place: PLACE }), "surface:32");
+	assert.equal(await backend.open(CMD, { title: "b", place: PLACE }), "surface:31");
 	const calls = fake.calls();
-	assert.deepEqual(calls.filter((c) => c[0] === "close-surface")[1], [
-		"close-surface",
-		"--workspace",
-		"workspace:30",
-		"--surface",
-		"surface:31",
-		"--force",
-	]);
-	assert.deepEqual(
-		calls.find((c) => c[0] === "identify"),
-		["identify", "--workspace", "workspace:30", "--surface", "surface:30"],
+	assert.equal(calls.filter((c) => c[0] === "close-surface").length, 1, "only the first, too-small split closed");
+	assert.equal(
+		calls.some((c) => c[0] === "new-surface"),
+		false,
 	);
-	assert.deepEqual(calls.find((c) => c[0] === "new-surface")?.slice(0, 7), [
-		"new-surface",
-		"--type",
-		"terminal",
-		"--pane",
-		"pane:7",
-		"--workspace",
-		"workspace:30",
-	]);
 });
 
 test("closing the last agent of the agent-link workspace makes the next overflow create a new one", async () => {
