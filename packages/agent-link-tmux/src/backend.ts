@@ -118,6 +118,8 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 				if (code === 0) resolve(out);
 				else reject(new Error(`tmux ${args[0]} failed (${code}): ${(err || out).trim()}`));
 			});
+			// tmux may exit before reading stdin (EPIPE); its exit code says how the command went.
+			child.stdin.on("error", () => {});
 			child.stdin.end(input ?? "");
 		});
 

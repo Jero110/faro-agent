@@ -79,7 +79,8 @@ test("the first worker opens right of the caller, the next ones below the previo
 			["rename-tab", "--workspace", "workspace:9", "--surface", "surface:13", "--", "Codex · c"],
 		],
 	);
-	assert.equal(readFileSync(join(fake.dir, "log"), "utf8").includes("999"), false);
+	// The exact ids: a bare "999" also turns up in the random gate file names now and then.
+	assert.doesNotMatch(readFileSync(join(fake.dir, "log"), "utf8"), /(surface|workspace):999/);
 });
 
 test("a closed worker leaves the stack: the next one opens below the last still open, or right of the caller", async () => {
