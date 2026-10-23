@@ -150,7 +150,7 @@ test("with identity: instructions name the agent and its parent; send, reply and
 		const server = mcp({ backend: "cmux", env });
 		try {
 			const r = (await server.rpc("initialize", init("codex-mcp-client"))).result as Json;
-			assert.match(String(r.instructions), /^You are the agent-link agent "w", launched by "codex", your parent\./);
+			assert.match(String(r.instructions), /^agent-link: this session is "w"; it was opened by "codex"\./);
 			assert.doesNotMatch(String(r.instructions), /SendMessage/);
 			const list = (await server.rpc("tools/list")).result as { tools: Array<{ description: string }> };
 			assert.match(list.tools[0]?.description ?? "", /arrives later as a new message after your turn ends/);

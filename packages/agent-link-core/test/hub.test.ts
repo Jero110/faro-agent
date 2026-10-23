@@ -55,8 +55,7 @@ test("spawn: unique names, run dir 0700, launch, pane next to the caller, connec
 		assert.equal(fake.pane?.ref, open?.ref);
 		const brief = fake.prompts[0];
 		assert.equal(brief?.from, "agent-link");
-		assert.match(brief?.text ?? "", /^The orchestrator codex launched you on behalf of the user\./);
-		assert.match(brief?.text ?? "", /Task:\nfix the bug/);
+		assert.equal(brief?.text, "fix the bug", "the task alone, as a person would write it");
 		assert.equal(state(t, "claude"), "working");
 	}));
 
@@ -148,11 +147,11 @@ test("queue: one turn per message, FIFO, prompt only while idle and never twice 
 		assert.equal(fake.prompts.length, 1, "not idle: wait");
 		fake.busy = false;
 		await waitFor(() => fake.prompts.length === 2, "second prompt after idle");
-		assert.equal(fake.prompts[1]?.text, `[agent-link] ${root}: one`);
+		assert.equal(fake.prompts[1]?.text, "one", "a parent's message reads like its user's");
 		assert.equal(fake.prompts[1]?.id, s1.id);
 		fake.finish("r1");
 		await waitFor(() => fake.prompts.length === 3, "third prompt");
-		assert.equal(fake.prompts[2]?.text, `[agent-link] ${root}: two`);
+		assert.equal(fake.prompts[2]?.text, "two");
 		fake.finish("r2");
 		await waitFor(() => state(t, w) === "done", "done");
 		assert.equal(fake.maxConcurrent, 1);

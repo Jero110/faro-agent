@@ -119,7 +119,12 @@ export function buildRun(records: readonly SessionRecord[], root: SessionRecord,
 		if (agent.role === "executor") plan ??= record.task ? PLAN_PATH.exec(record.task)?.[1] : undefined;
 		try {
 			agent.transcript = readTranscript(
-				{ harness: record.harness, sessionId: record.sessionId, transcript: record.transcript },
+				{
+					harness: record.harness,
+					sessionId: record.sessionId,
+					transcript: record.transcript,
+					worker: record.parent !== null,
+				},
 				roots,
 			);
 			agent.summary = summarize(agent.transcript);

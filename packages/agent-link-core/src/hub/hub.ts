@@ -11,7 +11,6 @@
 
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
-import { buildBrief } from "../brief.ts";
 import { keysForChoice } from "../dialogs.ts";
 import { checkCommand } from "../guard.ts";
 import { type Journal, journalId, type SessionPatch } from "../journal.ts";
@@ -240,7 +239,11 @@ export class Hub {
 		// The brief is the first message; it waits until connect() resolves.
 		this.enqueue(agent, {
 			from: "agent-link",
-			text: buildBrief({ name, parent: caller.record.name, task: req.task }),
+			// Problem: the first message wrapped the task in "The orchestrator X launched you on behalf of the user.
+			// You are Y." and rules about how results flow. Example: models read that preamble like an injected
+			// prompt. Solution: the worker gets the task as a person would write it; the agent-link MCP
+			// instructions say how to reach the parent.
+			text: req.task.trim(),
 			kind: "brief",
 		});
 		try {
@@ -578,7 +581,9 @@ export class Hub {
 		// Only while the worker waits on a dialog its parent was told about: the message is the choice.
 		if (to.dialog && to.record.state === "asking" && to.record.parent === req.from)
 			return this.answerDialog(id, to, req.message);
-		const msg = this.enqueue(to, { id, from: req.from, text: messageText(req.from, req.message), kind: "message" });
+		// A parent's message reads like its user's; anyone else's says who sent it.
+		const text = to.record.parent === req.from ? req.message : messageText(req.from, req.message);
+		const msg = this.enqueue(to, { id, from: req.from, text, kind: "message" });
 		const asksParent =
 			from.record.parent === req.to && (from.inflight !== undefined || from.record.state === "working");
 		if (asksParent && this.transition(from, "asking")) from.askedParent = true;

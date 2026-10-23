@@ -38,6 +38,27 @@ test("skills are found in SKILL.md reads, skill tool calls, /skill commands and 
 	assert.deepEqual(skillsInText("Base directory for this skill: /home/u/.claude/skills/executor"), ["executor"]);
 });
 
+test("a worker's session: every typed message came from its parent, though none carries a sender tag", (t) => {
+	const r = roots(t);
+	const dir = join(r.claude, "-work");
+	mkdirSync(dir, { recursive: true });
+	const at = (s: number) => new Date(Date.UTC(2026, 9, 23, 10, 0, s)).toISOString();
+	writeFileSync(
+		join(dir, "w-1.jsonl"),
+		lines(
+			{ type: "user", timestamp: at(0), message: { content: "Task T4: review greet.mjs" } },
+			{ type: "assistant", timestamp: at(2), message: { id: "m1", content: [{ type: "text", text: "Done." }] } },
+			{ type: "user", timestamp: at(3), message: { content: "also check package.json" } },
+		),
+	);
+	const origins = (worker: boolean) =>
+		readTranscript({ harness: "claude", sessionId: "w-1", worker }, r)
+			.messages.filter((m) => m.role === "user")
+			.map((m) => m.origin);
+	assert.deepEqual(origins(true), ["agent", "agent"]);
+	assert.deepEqual(origins(false), ["human", "human"]);
+});
+
 test("Claude: one message per message id, usage of the last line, tool results, durations, session from the file", (t) => {
 	const r = roots(t);
 	const dir = join(r.claude, "-work");

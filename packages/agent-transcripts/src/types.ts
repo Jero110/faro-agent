@@ -55,4 +55,6 @@ export interface TranscriptLocator {
 	sessionId?: string;
 	/** A known transcript path; wins over a search by session id. */
 	transcript?: string;
+	/** Another agent opened this session: its parent wrote every user message, which carries no sender tag. */
+	worker?: boolean;
 }

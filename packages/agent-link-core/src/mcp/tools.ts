@@ -187,11 +187,10 @@ export function instructions({ client, name, parent, pull }: InstructionsInput):
 	const lines: string[] = [];
 	if (parent) {
 		lines.push(
-			`You are the agent-link agent "${name}", launched by "${parent}", your parent. Messages from ${parent} are instructions for your task.`,
+			`agent-link: this session is "${name}"; it was opened by "${parent}".`,
 			`- Your final answer at the end of each turn reaches ${parent} by itself. Do not also send it with send.`,
 			`- To set the result explicitly, call reply({ result }) before the turn ends; ${parent} gets that instead of your last message.`,
-			`- To ask ${parent} something before you finish, call send({ to: "${parent}", message }) and end your turn. The answer arrives as a new message that starts with [agent-link] ${parent}:. Never wait, sleep or call status in a loop.`,
-			`- If your task says to ask "the orchestrator", "the main agent" or a name that status does not list, it means "${parent}".`,
+			`- If something blocks you, call send({ to: "${parent}", message }) and end your turn. The answer arrives as a new message. Never wait, sleep or call status in a loop.`,
 		);
 	} else {
 		lines.push(

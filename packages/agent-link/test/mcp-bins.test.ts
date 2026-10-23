@@ -38,7 +38,7 @@ test("agent-link-cmux and agent-link-tmux run as processes and serve the six too
 			const [init, list] = await handshake(backend, env);
 			assert.ok(init && list);
 			const instructions = String((init.result as { instructions?: string }).instructions);
-			assert.match(instructions, /^You are the agent-link agent "w", launched by "codex", your parent\./);
+			assert.match(instructions, /^agent-link: this session is "w"; it was opened by "codex"\./);
 			const tools = (list.result as { tools: Array<{ name: string }> }).tools.map((x) => x.name);
 			assert.deepEqual(tools, ["spawn", "send", "reply", "status", "cancel", "inbox"]);
 		}

@@ -40,7 +40,12 @@ export function transcript(
 	}
 	let t: ReturnType<typeof readTranscript>;
 	try {
-		t = readTranscript({ harness: r.harness, sessionId: r.sessionId, transcript: r.transcript });
+		t = readTranscript({
+			harness: r.harness,
+			sessionId: r.sessionId,
+			transcript: r.transcript,
+			worker: r.parent !== null,
+		});
 	} catch (e) {
 		out(`${r.name}: ${e instanceof Error ? e.message : String(e)}`);
 		return 1;

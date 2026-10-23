@@ -94,9 +94,15 @@ export function readTranscript(loc: TranscriptLocator, roots: TranscriptRoots = 
 	if (!harness) throw new Error(`no transcript reader for harness "${loc.harness}"`);
 	const source = locateTranscript(loc, roots);
 	if (!source) throw new Error(`no transcript on disk for ${loc.harness} session ${loc.sessionId ?? "(unknown id)"}`);
+	const t = parse(harness, source, loc.sessionId);
+	if (loc.worker) for (const m of t.messages) if (m.role === "user") m.origin = "agent";
+	return t;
+}
+
+function parse(harness: TranscriptHarness, source: string, sessionId: string | undefined): Transcript {
 	if (harness === "opencode") {
-		const t = loc.sessionId ? readOpencode(source, loc.sessionId) : undefined;
-		if (!t) throw new Error(`opencode session ${loc.sessionId} is not in ${source}`);
+		const t = sessionId ? readOpencode(source, sessionId) : undefined;
+		if (!t) throw new Error(`opencode session ${sessionId} is not in ${source}`);
 		return t;
 	}
 	const text = readFileSync(source, "utf8");

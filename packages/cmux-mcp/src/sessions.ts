@@ -190,10 +190,11 @@ export async function resolveSession(deps: SessionDeps, key: string): Promise<Ag
 /** Reads a resolved session's transcript. pi sessions may be Faro's, which live in another folder. */
 export function sessionTranscript(deps: SessionDeps, s: AgentSession): Transcript {
 	const roots = deps.roots ?? defaultRoots(deps.env);
+	const worker = Boolean(s.parent);
 	try {
-		return readTranscript({ harness: s.harness, sessionId: s.sessionId, transcript: s.transcript }, roots);
+		return readTranscript({ harness: s.harness, sessionId: s.sessionId, transcript: s.transcript, worker }, roots);
 	} catch (e) {
-		if (s.harness === "pi") return readTranscript({ harness: "faro", sessionId: s.sessionId }, roots);
+		if (s.harness === "pi") return readTranscript({ harness: "faro", sessionId: s.sessionId, worker }, roots);
 		throw e;
 	}
 }

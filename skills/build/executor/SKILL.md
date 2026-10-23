@@ -43,8 +43,7 @@ for files outside their working folder (opencode does for `/tmp`).
 
 ```
 Task <T-id> of <absolute plan path>: <title>
-You were launched by the executor of a validated plan. Do not ask the user anything; if the plan does not answer a
-question, ask the executor with send, then keep going.
+If the plan does not answer a question, ask `executor` with send, then keep going.
 Skills: <name>, <name>
 Read and follow before you start: <absolute path of each skill's SKILL.md>
 Work in: <cwd> (branch <branch>)
