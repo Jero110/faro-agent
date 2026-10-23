@@ -193,7 +193,8 @@ export default function ask(pi: ExtensionAPI): void {
 					const q = questions[tab];
 					const row = list[cursor];
 					if (!q || !row) return;
-					const toggle = matchesKey(data, Key.space) || (matchesKey(data, Key.enter) && row.kind === "option");
+					const toggle =
+						data === " " || matchesKey(data, Key.space) || (matchesKey(data, Key.enter) && row.kind === "option");
 					if (q.multiSelect && row.kind === "option" && toggle) {
 						const set = checked[tab];
 						if (set?.has(row.index)) set.delete(row.index);

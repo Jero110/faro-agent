@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { clientHarness, placeFromEnv, runMcpServer } from "../src/mcp/server.ts";
@@ -193,5 +196,33 @@ test("a hub that is gone: tools answer with an error that says not to retry in a
 	} finally {
 		await server.end();
 		await t.stop();
+	}
+});
+
+test("spawn offers the user's own profiles from the agent-link home, like the hub does", async () => {
+	const home = mkdtempSync(join(tmpdir(), "al-prof-"));
+	mkdirSync(join(home, "profiles"));
+	writeFileSync(
+		join(home, "profiles", "faro.json"),
+		JSON.stringify({
+			harness: "faro",
+			adapter: "pi",
+			label: "Faro",
+			defaultModel: null,
+			dialogs: [],
+			command: ["faro"],
+		}),
+	);
+	const server = mcp({ backend: "tmux", env: { AGENT_LINK_HOME: home }, home });
+	try {
+		await server.rpc("initialize", init("claude-code"));
+		const { tools } = (await server.rpc("tools/list")).result as { tools: Array<{ name: string; inputSchema: Json }> };
+		const spawn = tools.find((x) => x.name === "spawn");
+		const props = spawn?.inputSchema.properties as Record<string, { enum?: string[] }> | undefined;
+		const harness = props?.harness;
+		assert.deepEqual(harness?.enum, ["claude", "codex", "opencode", "pi", "faro"]);
+	} finally {
+		await server.end();
+		rmSync(home, { recursive: true, force: true });
 	}
 });

@@ -1,5 +1,5 @@
 // Faro's identity on top of pi: the lighthouse header and the terminal title. Nothing else of pi changes.
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { LOGO_WIDTH, logoLines } from "../logo.ts";
@@ -37,9 +37,16 @@ export function headerLines(theme: Theme, width: number, linked: boolean): strin
 }
 
 export default function brand(pi: ExtensionAPI): void {
+	// pi sets its own title ("π - <folder>") after startup and on some events; Faro sets it back.
+	const title = (ctx: ExtensionContext) => {
+		if (ctx.hasUI) ctx.ui.setTitle(`Faro · ${ctx.cwd.split("/").pop() ?? ""}`);
+	};
+	pi.on("agent_start", (_event, ctx) => title(ctx));
+	pi.on("agent_end", (_event, ctx) => title(ctx));
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
-		ctx.ui.setTitle(`Faro · ${ctx.cwd.split("/").pop() ?? ""}`);
+		title(ctx);
+		setTimeout(() => title(ctx), 500);
 		if (ctx.mode !== "tui") return;
 		const linked = Boolean(process.env.AGENT_LINK_AGENT);
 		ctx.ui.setHeader((_tui, theme) => ({

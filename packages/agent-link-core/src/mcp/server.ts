@@ -2,11 +2,13 @@
 // runMcpServer() with their backend; nothing else differs between them.
 // Minimal JSON-RPC (initialize, tools/list, tools/call, ping), no SDK on purpose. Ported from xi
 // packages/mcp/src/server.ts.
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { createHubClient, ensureHub, type HubClient, identityFromEnv } from "../client.ts";
 import { errorText } from "../hub/hub.ts";
-import { harnessNames, loadProfiles } from "../profiles.ts";
+import { agentLinkHome } from "../paths.ts";
+import { harnessNames, loadProfiles, PROFILES_DIR } from "../profiles.ts";
 import type { BackendName, PlaceHint } from "../types.ts";
 import {
 	cancelReply,
@@ -88,7 +90,11 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
 	const env = opts.env ?? process.env;
 	const output = opts.output ?? process.stdout;
 	const place = opts.place ?? placeFromEnv(opts.backend, env);
-	const harnesses = opts.harnesses ?? harnessNames(loadProfiles());
+	// The user's own profiles (e.g. Faro's, written by its setup) count too, as they do for the hub.
+	// Problem: spawn's harness enum came from the shipped profiles only. Example: the hub accepted harness "faro",
+	// but the tool offered claude, codex, opencode and pi, so a planner could not hand off to a Faro executor.
+	const harnesses =
+		opts.harnesses ?? harnessNames(loadProfiles([PROFILES_DIR, join(opts.home ?? agentLinkHome(env), "profiles")]));
 	const identity = identityFromEnv(env);
 	let pull = !identity;
 	let session: Promise<Session> | undefined;

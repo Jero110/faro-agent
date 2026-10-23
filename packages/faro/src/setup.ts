@@ -57,6 +57,8 @@ export function faroSettings(piSettings: unknown): Obj {
 		defaultModel: DEFAULT_MODEL,
 		packages: bridge === undefined ? [] : [bridge],
 		skills: [...SKILL_GROUP_DIRS],
+		// The header stays; the long list of loaded skills and extensions at startup goes.
+		quietStartup: "header",
 		extensions: ["!extensions/**"],
 	};
 }

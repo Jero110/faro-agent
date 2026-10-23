@@ -30,7 +30,11 @@ export interface LaunchOptions {
 export function piCommand(paths: FaroPaths, argv: readonly string[], env: NodeJS.ProcessEnv, cwd: string): PaneCommand {
 	return {
 		argv: [process.execPath, PI_CLI, ...EXTENSIONS.flatMap((e) => ["-e", e]), ...argv],
-		env: { ...env, PI_CODING_AGENT_DIR: paths.agentDir, FARO_HOME: paths.home } as Record<string, string>,
+		// Faro pins pi and updates it with its own install, so pi's "run pi update" notice would be wrong advice.
+		env: { ...env, PI_CODING_AGENT_DIR: paths.agentDir, FARO_HOME: paths.home, PI_SKIP_VERSION_CHECK: "1" } as Record<
+			string,
+			string
+		>,
 		cwd,
 	};
 }
