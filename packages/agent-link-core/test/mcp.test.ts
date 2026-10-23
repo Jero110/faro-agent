@@ -213,6 +213,9 @@ test("spawn offers the user's own profiles from the agent-link home, like the hu
 			command: ["faro"],
 		}),
 	);
+	// A test hub on that home: initialize registers a pull root, and without a running hub it would start a real
+	// hub daemon that outlives the test.
+	const t = await testHub({ home });
 	const server = mcp({ backend: "tmux", env: { AGENT_LINK_HOME: home }, home });
 	try {
 		await server.rpc("initialize", init("claude-code"));
@@ -223,6 +226,7 @@ test("spawn offers the user's own profiles from the agent-link home, like the hu
 		assert.deepEqual(harness?.enum, ["claude", "codex", "opencode", "pi", "faro"]);
 	} finally {
 		await server.end();
+		await t.stop();
 		rmSync(home, { recursive: true, force: true });
 	}
 });
