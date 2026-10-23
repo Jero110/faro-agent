@@ -47,8 +47,9 @@ In this order; the order matters.
    idea touches, docs it names. Use helpers for anything outside the repo. Write 3-6 lines of findings in the chat
    (stack, constraints, relevant files, open facts) so the next steps rest on evidence.
 2. **Pick the development skills** (Step 3).
-3. **Offer grill-me.** One `ask_user_question`: stress-test the idea with `grilling` (Matt Pocock), or go straight to
-   the plan. Recommend grilling when the idea has open decisions. If chosen, read
+3. **Offer grill-me.** Its own `ask_user_question` call, sent only after the skills answer has come back: never in
+   the same call as the skills picker. Stress-test the idea with `grilling` (Matt Pocock), or go straight to the
+   plan. Recommend grilling when the idea has open decisions. If chosen, read
    `<skills>/pre-build/grilling/SKILL.md` and follow it, with one change: ask each round through `ask_user_question`
    (a round's frontier questions in one call, up to 4, your recommended answer as the first option). It ends when the
    frontier is empty and the user confirms the shared understanding.
