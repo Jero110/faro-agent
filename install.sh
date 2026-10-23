@@ -176,6 +176,14 @@ node "$DIR/packages/faro/src/cli.ts" setup --backend "$BACKEND"
 
 echo
 say "Faro is installed."
+if [ "$BACKEND" = cmux ]; then
+	echo "Open a terminal in cmux, cd into a project and run: faro"
+else
+	echo "Start tmux, cd into a project and run: faro"
+fi
+echo "Then try: /skill:planner <what you want to build>"
+
+# Last, so it is the line people see: the command that puts faro on PATH, ready to paste.
 case ":$ORIG_PATH:" in
 *":$BIN_DIR:"*) ;;
 *)
@@ -183,12 +191,10 @@ case ":$ORIG_PATH:" in
 	[ "${SHELL##*/}" = bash ] && RC="$HOME/.bashrc"
 	ADD="$BIN_DIR"
 	[ "$HARNESSES" = yes ] && [ "$HARNESS_PREFIX/bin" != "$BIN_DIR" ] && ADD="$BIN_DIR:$HARNESS_PREFIX/bin"
-	echo "Add $ADD to your PATH, e.g.: echo 'export PATH=\"$ADD:\$PATH\"' >> $RC"
+	echo
+	say "One more step: put faro on your PATH. Run:"
+	echo
+	echo "  echo 'export PATH=\"$ADD:\$PATH\"' >> $RC && source $RC"
+	echo
 	;;
 esac
-if [ "$BACKEND" = cmux ]; then
-	echo "Open a terminal in cmux, cd into a project and run: faro"
-else
-	echo "Start tmux, cd into a project and run: faro"
-fi
-echo "Then try: /skill:planner <what you want to build>"
