@@ -18,7 +18,8 @@ write the code and never run the plan yourself: the executor does, in its own pa
 
 ## Rules for the whole skill
 
-- **Every question to the user goes through `ask_user_question`**, never as chat text. One call holds up to 4 questions;
+- **Every question to the user goes through `ask_user_question`** (the skills question through `pick_skills`), never
+  as chat text. One call holds up to 4 questions;
   each has 2-4 options (up to 16 when `multiSelect` is true), your recommended option first, its label ending in
   "(Recommended)". The user can always type their own answer. Write questions in the user's language.
 - **Facts are yours, decisions are theirs.** Read the repo, docs and files yourself. For research outside the repo (a
@@ -67,15 +68,15 @@ In this order; the order matters.
 
 ## Step 3: Pick the development skills
 
-1. Read `<skills>/catalog.json` and take every development skill of the `build` group (all but `executor`). Decide
-   which few fit this work best: for example `ci-cd-and-automation` only when the work touches CI or automation,
-   `git-workflow-and-versioning` only for GitHub-related work, `performance-optimization` only with a performance goal.
-2. Show all of them in the chat as one table: skill, author (as the catalog names it, e.g. "(Addy)"), one-line
-   description, recommended first. Then say which you recommend and why, in one or two lines.
-3. Ask with one `ask_user_question`, `multiSelect: true`, with one option per development skill, all of them: yours
-   first, their labels ending in "(Recommended)", then the rest in catalog order. Each description says what the skill
-   would change in this work, or when it would fit. The user may pick any of them, several or none. Never show only
-   the recommended ones: the user chooses from the whole list.
+1. Read `<skills>/catalog.json` and decide which development skills (group `build`, all but `executor`) fit this work
+   best: for example `ci-cd-and-automation` only when the work touches CI or automation, `git-workflow-and-versioning`
+   only for GitHub-related work, `performance-optimization` only with a performance goal.
+2. Say in one or two lines which you recommend and why.
+3. Ask with **`pick_skills`**, never with `ask_user_question`: pass your recommendations (`recommended`, each with one
+   line on what it changes in this work), optionally a line for the others (`notes`), and in `include` any skill
+   outside the development group the user named (for example `impeccable`). The picker always lists every
+   development skill, yours first, so the user chooses from the whole list. It returns the picked skills with their
+   paths.
 
 Only the skills the user picked go into the plan and to the agents. Never add one they did not pick.
 
@@ -173,5 +174,6 @@ tokens and time. Then end your turn. Do not start post-build or extra skills: th
 - A question in chat text instead of `ask_user_question`.
 - Writing code, or running the plan's tasks yourself.
 - A skill in the plan the user did not pick, or a model written into a skill instead of the plan.
+- Asking for the skills with `ask_user_question` or a hand-made list instead of `pick_skills`.
 - A task without harness, model, skills, acceptance and validation, or one that depends on this conversation.
 - Handing off before the user explicitly approved.

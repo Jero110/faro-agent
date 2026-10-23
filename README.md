@@ -127,8 +127,9 @@ sequenceDiagram
   P-->>You: summary, then /workflow review
 ```
 
-The **planner** asks every question in a picker (`ask_user_question`), not in chat. It shows every development
-skill, recommends the few that fit the work (using each one's `offerWhen` in `skills/catalog.json`), and puts only
+The **planner** asks every question in a picker (`ask_user_question`), not in chat. The skills picker
+(`pick_skills`) is built from the catalog, so it always shows every development skill; the planner recommends the
+few that fit the work (using each one's `offerWhen` in `skills/catalog.json`), and puts only
 the ones you pick into the plan. The plan names, for each
 task, the agent, harness and model, its skills, what can run in parallel and what waits.
 

@@ -15,7 +15,7 @@ import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { Journal, readJournal } from "agent-link-core";
 import type { TranscriptRoots } from "agent-transcripts";
-import { answersText } from "../src/extensions/ask.ts";
+import { answersText, pickedSkillsText, skillPickerQuestion } from "../src/extensions/ask.ts";
 import { askContext, reviewInstructions } from "../src/extensions/workflow.ts";
 import { piCommand, runFaro, withSkillsDir } from "../src/launcher.ts";
 import { LOGO_WIDTH, logoLines } from "../src/logo.ts";
@@ -490,4 +490,61 @@ test("answers read as one line per question", () => {
 		"Start: I have an idea or a path\nSkills: test-driven-development, spec-driven-development\nName: user wrote: todo",
 	);
 	assert.match(answersText({ cancelled: true, answers: [] }), /closed the questions/);
+});
+
+// ---------------------------------------------------------------------------------------------- pick_skills
+
+test("pick_skills lists every development skill, recommended first, plus the extras the user named", () => {
+	const catalog = readCatalog();
+	const dev = catalog.skills.filter((s) => s.group === "build" && s.name !== "executor").map((s) => s.name);
+	const built = skillPickerQuestion(catalog, {
+		recommended: [
+			{ name: "spec-driven-development", why: "clear acceptance per task" },
+			{ name: "incremental-implementation", why: "thin slices" },
+		],
+		notes: { "test-driven-development": "little to test in a static page" },
+		include: ["impeccable"],
+	});
+	assert.ok("question" in built);
+	assert.equal(built.question.multiSelect, true);
+	// Every development skill is there, whatever the model recommended; the extra comes last.
+	assert.deepEqual([...built.names].slice(0, dev.length).sort(), [...dev].sort());
+	assert.deepEqual(built.names.slice(0, 2), ["spec-driven-development", "incremental-implementation"]);
+	assert.equal(built.names.at(-1), "impeccable");
+	const labels = built.question.options.map((o) => o.label);
+	assert.equal(labels[0], "spec-driven-development (Addy) (Recommended)");
+	assert.equal(labels.at(-1), "impeccable (Paul Bakaus) (you asked for it)");
+	assert.equal(labels.filter((l) => l.endsWith("(Recommended)")).length, 2);
+	const tdd = built.question.options.find((o) => o.label.startsWith("test-driven-development ("));
+	assert.equal(tdd?.description, "little to test in a static page");
+
+	const bad = skillPickerQuestion(catalog, { recommended: [{ name: "impeccable", why: "x" }], include: ["planner"] });
+	assert.ok("error" in bad);
+	assert.match(bad.error, /not development skills: impeccable/);
+	assert.match(bad.error, /cannot include: planner/);
+	assert.match(bad.error, /development skills: .*test-driven-development/);
+});
+
+test("pick_skills returns only the picked skills, with their SKILL.md paths", () => {
+	const catalog = readCatalog();
+	const built = skillPickerQuestion(catalog, { recommended: [], include: ["impeccable"] });
+	assert.ok("question" in built);
+	const text = pickedSkillsText(
+		{
+			cancelled: false,
+			answers: [
+				{ header: "Skills", picked: ["test-driven-development (Addy)", "impeccable (Paul Bakaus) (you asked for it)"] },
+			],
+		},
+		built.names,
+		catalog,
+	);
+	assert.match(text, /only these go into the plan/);
+	assert.match(text, /- test-driven-development \(Addy\): .*skills\/build\/test-driven-development\/SKILL\.md/);
+	assert.match(text, /- impeccable \(Paul Bakaus\): .*skills\/extras\/impeccable\/SKILL\.md/);
+	assert.doesNotMatch(text, /spec-driven/);
+	assert.match(
+		pickedSkillsText({ cancelled: false, answers: [{ header: "Skills", picked: [] }] }, built.names, catalog),
+		/picked no skills/,
+	);
 });
