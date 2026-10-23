@@ -9,7 +9,7 @@ import { placeOf } from "../src/hub/hub.ts";
 import { hubPaths } from "../src/paths.ts";
 import { IDENTITY_ENV } from "../src/types.ts";
 import { echoResponder } from "./fakes/adapter.ts";
-import { pullRoot, spawned, type TestHub, testHub, waitFor } from "./fakes/hub.ts";
+import { fakeProfiles, pullRoot, spawned, type TestHub, testHub, waitFor } from "./fakes/hub.ts";
 
 async function withHub(fn: (t: TestHub) => Promise<void>, opts: Parameters<typeof testHub>[0] = {}): Promise<void> {
 	const t = await testHub(opts);
@@ -41,6 +41,7 @@ test("spawn: unique names, run dir 0700, launch, pane next to the caller, connec
 		assert.equal(fake.spec.env[IDENTITY_ENV.hub], t.running.socket);
 		assert.equal(fake.spec.env[IDENTITY_ENV.token], t.running.token);
 		assert.equal(fake.spec.env[IDENTITY_ENV.depth], "1");
+		assert.equal(fake.spec.env[IDENTITY_ENV.home], t.home, "a worker finds the hub's profiles and journal");
 		assert.equal(fake.spec.model, "claude-haiku-5-5", "profile default model");
 		assert.deepEqual(fake.spec.mcp, { command: "agent-link-cmux", args: ["mcp"] });
 
@@ -58,6 +59,29 @@ test("spawn: unique names, run dir 0700, launch, pane next to the caller, connec
 		assert.match(brief?.text ?? "", /Task:\nfix the bug/);
 		assert.equal(state(t, "claude"), "working");
 	}));
+
+test("spawn: a profile's env reaches the harness, but cannot replace the identity", () =>
+	withHub(
+		async (t) => {
+			const root = await pullRoot(t.client);
+			await t.client.spawn({ from: root, harness: "faro", task: "x", backend: "cmux" });
+			const fake = await waitFor(() => t.kit.byName("faro"), "adapter");
+			assert.equal(fake.spec?.env.FARO_HOME, "/sandbox/faro");
+			assert.equal(fake.spec?.env[IDENTITY_ENV.agent], "faro");
+		},
+		{
+			profiles: fakeProfiles([
+				{
+					harness: "faro",
+					adapter: "pi",
+					label: "Faro",
+					defaultModel: null,
+					dialogs: [],
+					env: { FARO_HOME: "/sandbox/faro", [IDENTITY_ENV.agent]: "spoofed" },
+				},
+			]),
+		},
+	));
 
 test("spawn errors say what exists: unknown harness, caller, backend; a failed pane closes the adapter", () =>
 	withHub(async (t) => {

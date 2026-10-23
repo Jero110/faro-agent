@@ -44,6 +44,7 @@ import {
 } from "./queue.ts";
 import { type Agent, Registry } from "./registry.ts";
 import {
+	agentEnv,
 	checkSpawn,
 	DEFAULT_MCP,
 	identityEnv,
@@ -58,6 +59,8 @@ import { type Cause, causeOf, next, turnEndCause } from "./state.ts";
 export interface HubOptions {
 	/** Path of the hub's Unix socket, handed to agents as AGENT_LINK_HUB. */
 	socket: string;
+	/** The hub's folder, handed to agents as AGENT_LINK_HOME. */
+	home?: string;
 	token: string;
 	/** Parent folder of every agent's run folder (<home>/run). */
 	runRoot: string;
@@ -178,7 +181,7 @@ export class Hub {
 			model: record.model,
 			cwd: record.cwd,
 			runRoot: this.opts.runRoot,
-			env: identityEnv(identity),
+			env: agentEnv(profile, identityEnv(identity, this.opts.home)),
 			mcp: this.opts.mcp?.[req.backend ?? "cmux"] ?? DEFAULT_MCP[req.backend ?? "cmux"],
 			profile,
 		});
@@ -247,7 +250,7 @@ export class Hub {
 				model: record.model,
 				cwd: record.cwd,
 				runRoot: this.opts.runRoot,
-				env: identityEnv(this.identity(name, depth)),
+				env: agentEnv(profile, identityEnv(this.identity(name, depth), this.opts.home)),
 				mcp: this.opts.mcp?.[req.backend] ?? DEFAULT_MCP[req.backend],
 				profile,
 			});

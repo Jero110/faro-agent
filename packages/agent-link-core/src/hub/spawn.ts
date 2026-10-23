@@ -61,13 +61,22 @@ export function checkSpawn(req: SpawnRequest, ctx: SpawnContext): Checked {
 }
 
 /** The identity env an agent's harness process (and its MCP server) gets. */
-export function identityEnv(identity: { agent: string; hub: string; token: string; depth: number }) {
+export function identityEnv(
+	identity: { agent: string; hub: string; token: string; depth: number },
+	home?: string,
+): Record<string, string> {
 	return {
 		[IDENTITY_ENV.agent]: identity.agent,
 		[IDENTITY_ENV.hub]: identity.hub,
 		[IDENTITY_ENV.token]: identity.token,
 		[IDENTITY_ENV.depth]: String(identity.depth),
+		...(home ? { [IDENTITY_ENV.home]: home } : {}),
 	};
+}
+
+/** The env a harness launches with: its profile's env, then the identity, which always wins. */
+export function agentEnv(profile: Profile, identity: Record<string, string>): Record<string, string> {
+	return { ...profile.env, ...identity };
 }
 
 /** Creates the agent's private run folder (0700) and the spec the adapter launches it with. */

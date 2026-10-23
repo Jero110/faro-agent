@@ -43,4 +43,8 @@ test("a wrong profile fails with its file and the field", () => {
 	);
 	assert.throws(() => parseProfile({ harness: "x", label: "X", dialogs: [] }, "x.json"), /"adapter" missing/);
 	assert.throws(() => parseProfile({ harness: "x", adapter: "a", label: "X" }, "x.json"), /"dialogs" must be an array/);
+	const base = { harness: "x", adapter: "pi", label: "X", dialogs: [] };
+	assert.throws(() => parseProfile({ ...base, env: { A: 1 } }, "x.json"), /"env" must map names to strings/);
+	assert.throws(() => parseProfile({ ...base, env: ["A"] }, "x.json"), /"env" must map names to strings/);
+	assert.deepEqual(parseProfile({ ...base, env: { FARO_HOME: "/f" } }).env, { FARO_HOME: "/f" });
 });

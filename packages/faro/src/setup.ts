@@ -123,6 +123,10 @@ export function writeFaroProfile(env: NodeJS.ProcessEnv): string {
 		defaultModel: null,
 		dialogs: [],
 		command: [stableNode(env), FARO_CLI],
+		// Problem: a Faro worker opened by the hub got the default ~/.faro. Example: a sandbox planner with
+		// FARO_HOME=/tmp/fe/faro handed off to an executor that read and wrote the user's real ~/.faro.
+		// Solution: a non-default home goes in the profile, so every Faro the hub opens uses it.
+		...(env.FARO_HOME ? { env: { FARO_HOME: env.FARO_HOME } } : {}),
 	};
 	const text = `${JSON.stringify(profile, null, "\t")}\n`;
 	if (!existsSync(file) || readFileSync(file, "utf8") !== text) writeFileSync(file, text);

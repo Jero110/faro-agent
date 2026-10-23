@@ -54,9 +54,25 @@ export function parseProfile(raw: unknown, source = "profile"): Profile {
 		command = p.command as string[];
 	}
 	if (adapter === "paste" && !command) fail(`a paste profile needs "command"`);
-	return command
-		? { harness, adapter, label, defaultModel, dialogs, command }
-		: { harness, adapter, label, defaultModel, dialogs };
+	let env: Record<string, string> | undefined;
+	if (p.env !== undefined) {
+		const ok =
+			p.env !== null &&
+			typeof p.env === "object" &&
+			!Array.isArray(p.env) &&
+			Object.values(p.env).every((v) => typeof v === "string");
+		if (!ok) fail(`"env" must map names to strings`);
+		env = p.env as Record<string, string>;
+	}
+	return {
+		harness,
+		adapter,
+		label,
+		defaultModel,
+		dialogs,
+		...(command ? { command } : {}),
+		...(env ? { env } : {}),
+	};
 }
 
 /** The names spawn accepts: the native harnesses first, then every other profile. */

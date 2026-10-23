@@ -167,6 +167,13 @@ test("piCommand keeps the user's arguments last", () => {
 	assert.equal(cmd.cwd, "/w");
 });
 
+test("writeFaroProfile carries a non-default FARO_HOME, so the Faro workers the hub opens use it", (t) => {
+	const { env } = tempHome(t);
+	const read = (file: string) => JSON.parse(readFileSync(file, "utf8")) as { env?: Record<string, string> };
+	assert.equal(read(writeFaroProfile(env)).env, undefined);
+	assert.deepEqual(read(writeFaroProfile({ ...env, FARO_HOME: "/sandbox/faro" })).env, { FARO_HOME: "/sandbox/faro" });
+});
+
 test("writeFaroProfile only rewrites when it changed", (t) => {
 	const { env } = tempHome(t);
 	const file = writeFaroProfile(env);

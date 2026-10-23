@@ -19,7 +19,13 @@ import { defaultBackend, type McpCommand, mcpCommand } from "./commands.ts";
 import { SKILL_MD, SKILL_NAME } from "./skill.ts";
 
 export const SERVER_NAME = "agent-link";
-export const IDENTITY_VARS = ["AGENT_LINK_AGENT", "AGENT_LINK_HUB", "AGENT_LINK_TOKEN", "AGENT_LINK_DEPTH"] as const;
+export const IDENTITY_VARS = [
+	"AGENT_LINK_AGENT",
+	"AGENT_LINK_HUB",
+	"AGENT_LINK_TOKEN",
+	"AGENT_LINK_DEPTH",
+	"AGENT_LINK_HOME",
+] as const;
 
 /**
  * One MCP server to register with every harness found. agent-link registers its own; another package (the

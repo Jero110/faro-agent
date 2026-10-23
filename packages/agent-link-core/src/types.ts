@@ -181,6 +181,8 @@ export interface Profile {
 	dialogs: DialogSpec[];
 	/** paste adapter only: the argv that opens the harness's TUI; {model} and {cwd} are replaced. */
 	command?: string[];
+	/** Extra env for the harness process, e.g. Faro's FARO_HOME when it is not the default. */
+	env?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -192,6 +194,8 @@ export const IDENTITY_ENV = {
 	hub: "AGENT_LINK_HUB",
 	token: "AGENT_LINK_TOKEN",
 	depth: "AGENT_LINK_DEPTH",
+	/** The hub's folder, so a worker's MCP server and CLI find the same profiles and journal as the hub. */
+	home: "AGENT_LINK_HOME",
 } as const;
 
 /**

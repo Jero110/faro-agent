@@ -60,6 +60,7 @@ export async function startHub(opts: StartHubOptions): Promise<RunningHub> {
 	const log = new EventLog(paths.events);
 	const hub = new Hub({
 		socket: paths.socket,
+		home: paths.home,
 		token,
 		runRoot: paths.run,
 		log,
