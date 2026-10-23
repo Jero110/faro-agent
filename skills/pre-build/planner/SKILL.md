@@ -19,7 +19,7 @@ write the code and never run the plan yourself: the executor does, in its own pa
 ## Rules for the whole skill
 
 - **Every question to the user goes through `ask_user_question`**, never as chat text. One call holds up to 4 questions;
-  each has 2-4 options (up to 8 when `multiSelect` is true), your recommended option first, its label ending in
+  each has 2-4 options (up to 16 when `multiSelect` is true), your recommended option first, its label ending in
   "(Recommended)". The user can always type their own answer. Write questions in the user's language.
 - **Facts are yours, decisions are theirs.** Read the repo, docs and files yourself. For research outside the repo (a
   library, a site, a tool), launch a helper with agent-link `spawn` (for example `opencode` to search the web) and keep
@@ -67,14 +67,15 @@ In this order; the order matters.
 
 ## Step 3: Pick the development skills
 
-1. Read `<skills>/catalog.json`. Take the `build` group's development skills (not `executor`) and keep only those that
-   fit this work. For example `ci-cd-and-automation` only when the work touches CI or automation,
-   `git-workflow-and-versioning` only when the user chose GitHub-related work, `performance-optimization` only with a
-   performance goal.
-2. Show them in the chat as a short table: skill, author (as the catalog names it, e.g. "(Addy)"), one-line description.
-   Then say which few you recommend and why, in one or two lines.
-3. Ask with one `ask_user_question`, `multiSelect: true`, one option per pertinent skill (label = skill name, ending in
-   "(Recommended)" for yours; description = what it does here). The user may pick several or none.
+1. Read `<skills>/catalog.json` and take every development skill of the `build` group (all but `executor`). Decide
+   which few fit this work best: for example `ci-cd-and-automation` only when the work touches CI or automation,
+   `git-workflow-and-versioning` only for GitHub-related work, `performance-optimization` only with a performance goal.
+2. Show all of them in the chat as one table: skill, author (as the catalog names it, e.g. "(Addy)"), one-line
+   description, recommended first. Then say which you recommend and why, in one or two lines.
+3. Ask with one `ask_user_question`, `multiSelect: true`, with one option per development skill, all of them: yours
+   first, their labels ending in "(Recommended)", then the rest in catalog order. Each description says what the skill
+   would change in this work, or when it would fit. The user may pick any of them, several or none. Never show only
+   the recommended ones: the user chooses from the whole list.
 
 Only the skills the user picked go into the plan and to the agents. Never add one they did not pick.
 

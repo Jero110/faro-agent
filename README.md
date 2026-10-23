@@ -129,8 +129,9 @@ sequenceDiagram
   P-->>You: summary, then /workflow review
 ```
 
-The **planner** asks every question in a picker (`ask_user_question`), not in chat. It offers only the development
-skills that fit the work, recommends a few, and puts only the ones you pick into the plan. The plan names, for each
+The **planner** asks every question in a picker (`ask_user_question`), not in chat. It shows every development
+skill, recommends the few that fit the work (using each one's `offerWhen` in `skills/catalog.json`), and puts only
+the ones you pick into the plan. The plan names, for each
 task, the agent, harness and model, its skills, what can run in parallel and what waits.
 
 The **executor** never asks you anything: it decides, records its assumptions, runs every task on the agent the plan
@@ -186,8 +187,8 @@ How skills load:
 
 - Only `planner` and `executor` are visible to the model on their own. Every other skill carries
   `disable-model-invocation: true`, so it loads only when a plan names it or you call `/skill:<name>`.
-- The planner offers the development skills whose `offerWhen` (in `skills/catalog.json`) fits the work, recommends a
-  few, and writes only the ones you pick into the plan, next to each task.
+- The planner shows every development skill in one picker, the ones whose `offerWhen` (in `skills/catalog.json`)
+  fits the work first, marked recommended, and writes only the ones you pick into the plan, next to each task.
 - The executor passes each task its skills by absolute path, and Faro lets every worker read the skills folder without
   a permission prompt. `/workflow review` then checks which of them each agent really loaded.
 

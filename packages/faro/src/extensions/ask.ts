@@ -51,7 +51,10 @@ const Params = Type.Object({
 					label: Type.String({ description: "1-5 words. Put the recommended option first, ending in (Recommended)" }),
 					description: Type.Optional(Type.String({ description: "What choosing it means, one line" })),
 				}),
-				{ description: "2-4 options (up to 8 when multiSelect is true); the user can always type their own answer" },
+				{
+					description:
+						"2-4 options (up to 16 when multiSelect is true, e.g. a full list of skills); the user can always type their own answer",
+				},
 			),
 			multiSelect: Type.Optional(Type.Boolean({ description: "true when the user may pick several options" })),
 		}),
