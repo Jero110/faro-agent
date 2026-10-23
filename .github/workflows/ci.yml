@@ -30,7 +30,8 @@ jobs:
         run: sudo rm -f "$(command -v node)" "$(command -v npm)" "$(command -v npx)"
       - name: install.sh --deps --with-harnesses in a fresh HOME
         run: |
-          export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME"
+          # A fresh user: its own HOME, and no XDG_CONFIG_HOME (the runner sets one under the real home).
+          export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME" && unset XDG_CONFIG_HOME
           bash install.sh --backend tmux --deps --with-harnesses
           export PATH="$HOME/.local/bin:$PATH"
           node --version
