@@ -232,10 +232,22 @@ export async function stopHub(home: string = agentLinkHome(), timeoutMs = 10_000
 	} catch {
 		return false;
 	}
+	// Problem: the hub removes its socket and pid file before it has closed the journal and the event log. Example: a
+	// test that deleted the home right after stopHub failed with ENOTEMPTY, since the hub still wrote files there.
+	// Solution: wait until the process itself is gone, too.
 	const end = Date.now() + timeoutMs;
-	while (existsSync(paths.socket) || existsSync(paths.pid)) {
+	while (existsSync(paths.socket) || existsSync(paths.pid) || alive(pid)) {
 		if (Date.now() > end) return false;
 		await new Promise((r) => setTimeout(r, 50));
 	}
 	return true;
+}
+
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
 }

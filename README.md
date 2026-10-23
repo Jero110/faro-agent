@@ -1,27 +1,42 @@
 <p align="center">
-  <img alt="Faro" src="assets/faro.png" width="160">
+  <img alt="Faro Agent" src="assets/faro.png" width="160">
 </p>
 
-# Faro
+<h1 align="center">Faro Agent</h1>
 
-**Bring light to your agents.**
+<p align="center"><strong>Bring light to your agents.</strong></p>
 
-<p>
+<p align="center">
+  A self-learning, lightweight, inter-harness coding agent built on top of <a href="https://github.com/earendil-works/pi">pi</a>.<br>
+  It leverages cmux and tmux to run every agent in its own pane.
+</p>
+
+<p align="center">
   <a href="https://github.com/Jero110/faro-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Jero110/faro-agent/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-339933?style=flat-square">
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
 </p>
 
-Faro is a coding agent built on [pi](https://github.com/earendil-works/pi) that plans with you, then hands the plan to
-other agents (Claude Code, Codex, opencode, more Faros) that build it in their own terminal panes while you watch.
-Afterwards it tells you what each one did, with which skills, how many tokens and how much time.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#use">Use</a> ·
+  <a href="#the-workflow">Workflow</a> ·
+  <a href="#self-learning">Self-learning</a> ·
+  <a href="#skills">Skills</a> ·
+  <a href="#the-mcp-servers">MCP servers</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#faq">FAQ</a>
+</p>
 
-Faro does not fork pi. It is pi, unmodified, with its own config folder and three extensions, plus two small tools any
-harness can use:
+---
 
-- **agent-link** launches, messages and stops other agents, each in a pane with its own native UI, and keeps a journal
-  of every session so the work survives a crash.
-- **cmux MCP** finds and reads any agent's session, arranges cmux (tabs, panes, workspaces) and drives its browser.
+- **Inter-harness.** Faro plans with you, then hands the plan to other agents (Claude Code, Codex, opencode, more
+  Faros), each in its own pane with its native UI. They talk through agent-link without anyone waiting or polling.
+- **Self-learning.** Every run is journaled. `/workflow review` reads what each agent did (tasks, skills, tokens,
+  time per message) and recommends what to change in your skills, plans and agent choices; `/workflow ask` answers
+  about your setup and researches the tools you name.
+- **Lightweight.** pi unmodified, three extensions, two MCP servers with no third-party dependencies, about 10k lines
+  of TypeScript that Node runs as is (no build step), and 23 skills as plain Markdown.
 
 ## Install
 
@@ -64,14 +79,25 @@ Every pi option and command works too (`faro --model ...`, `/model`, `/login`).
 
 ## The workflow
 
-```
-you ─► planner (Faro, your pane)            executor (Faro, its own pane)         workers (their own panes)
-       1. idea or from zero?                 reads the validated plan               claude · codex · opencode · faro
-       2. investigate / brainstorm           dispatches each task ────────────────► build, test, report back
-       3. pick development skills            verifies and integrates   ◄────────────
-       4. grill-me (optional)                final report ─► planner
-       5. write docs/plans/<slug>.md
-       6. you approve ─► hand off ──────────►
+```mermaid
+sequenceDiagram
+  actor You
+  participant P as Planner (Faro, your pane)
+  participant E as Executor (Faro, its own pane)
+  participant W as Workers (claude, codex, opencode, faro)
+  You->>P: /skill:planner and your idea
+  P->>You: picker: starting point, then skills, then grill-me
+  P->>P: investigate, write docs/plans/slug.md
+  P->>You: approve the plan?
+  You->>P: approve
+  P->>E: spawn with the plan
+  loop each task, in the plan's order
+    E->>W: spawn with the task and its skills
+    W-->>E: report: status, validation, concerns
+    E->>E: verify and record in the ledger
+  end
+  E-->>P: final report
+  P-->>You: summary, then /workflow review
 ```
 
 The **planner** asks every question in a picker (`ask_user_question`), not in chat. It offers only the development
@@ -80,6 +106,41 @@ task, the agent, harness and model, its skills, what can run in parallel and wha
 
 The **executor** never asks you anything: it decides, records its assumptions, runs every task on the agent the plan
 names, verifies, integrates, and reports. No skill fixes a model; the plan does, from what you asked for.
+
+## Self-learning
+
+```mermaid
+flowchart LR
+  run["a run: planner, executor, workers"] --> journal[("journal<br/>~/.agent-link/sessions")]
+  run --> tr[("each harness's<br/>own transcripts")]
+  journal --> review["/workflow review"]
+  tr --> review
+  review --> report["report<br/>~/.faro/reports/*.md"]
+  report --> you(["you"])
+  you -- "change a skill, a plan, a model" --> next["next run"]
+  catalog[("skills catalog")] --> ask["/workflow ask"]
+  arch["architecture and this machine"] --> ask
+  report --> ask
+  ask -- "unknown tool" --> research["pi docs, then a web research agent"]
+```
+
+Faro learns from what already exists on disk; it adds no tracking of its own.
+
+1. **Record.** The hub journals every agent it opens: parent, task, harness, model, pane, and the path of the
+   harness's own transcript.
+2. **Measure.** `/workflow review` rebuilds the run from the journal, assigns roles from its shape (the root plans, the
+   `executor` runs the plan, its children are workers) and reads every transcript with one parser per harness. The
+   numbers are computed, not estimated by a model: tokens and time by role, harness, agent and message; skills
+   assigned versus loaded; tool errors; the slowest answers.
+3. **Recommend.** The session's model reads that report and writes a summary and up to five recommendations, each
+   with its evidence (agent and message number) and the file to change: a skill, the plan, or the executor's choices.
+   Both are saved in the report.
+4. **Decide.** You apply what you agree with. Faro does not rewrite your skills by itself.
+
+`/workflow ask <question>` gives the model the architecture, the skills catalog, what is installed on this machine
+and the last report. When the question names something it does not know, it searches pi's own docs and examples first,
+then sends an opencode agent to the web, and ends with one verdict: we already have something better, it is about the
+same as something we have, or it is worth trying (what to change, and on which past task to test it).
 
 ## Skills
 
@@ -91,6 +152,15 @@ Four groups. Pre-build and build run inside the workflow; post-build and extras 
 | **Build** | `executor` (Faro); development skills (Addy): `test-driven-development`, `spec-driven-development`, `source-driven-development`, `security-and-hardening`, `performance-optimization`, `doubt-driven-development`, `constraint-driven-development`, `documentation-and-adrs`, `observability-and-instrumentation`, `incremental-implementation`, `git-workflow-and-versioning`, `ci-cd-and-automation` |
 | **Post-build** | `shipping-and-launch` (Addy), `handoff` (Matt Pocock) |
 | **Extras** | `api-and-interface-design`, `browser-testing-with-devtools`, `code-review-and-quality`, `debugging-and-error-recovery`, `code-simplification` (Addy); `impeccable` (Paul Bakaus, installed with `npx impeccable install`) |
+
+How skills load:
+
+- Only `planner` and `executor` are visible to the model on their own. Every other skill carries
+  `disable-model-invocation: true`, so it loads only when a plan names it or you call `/skill:<name>`.
+- The planner offers the development skills whose `offerWhen` (in `skills/catalog.json`) fits the work, recommends a
+  few, and writes only the ones you pick into the plan, next to each task.
+- The executor passes each task its skills by absolute path, and Faro lets every worker read the skills folder without
+  a permission prompt. `/workflow review` then checks which of them each agent really loaded.
 
 The full catalog, with what each one does and its source: [skills/README.md](skills/README.md). Third-party skills keep
 their licenses ([skills/LICENSES](skills/LICENSES/README.md)).
@@ -106,16 +176,36 @@ session id and transcript path. Nothing depends on the hub or the agent still ru
 
 So a Codex session can pick up where a stopped Claude Code session left off.
 
-## Tools reference
+## The MCP servers
 
-**agent-link MCP** (every harness): `spawn`, `send`, `reply`, `status`, `cancel`, `inbox`.
-CLI: `agent-link status | stop | sessions | transcript <agent> | open <harness> | install | uninstall`.
+Both are plain MCP servers over stdio, so any harness can use them, not only Faro. The installer registers them with
+every harness it finds.
 
-**cmux MCP** (cmux only):
+### agent-link
+
+Lets an agent launch other agents and talk to them. Each agent runs in a pane with its own UI; the hub reaches it by
+that harness's native interface (Claude Code's messaging socket, Codex's app-server, opencode's HTTP server, pi's
+extension socket), never by typing into the screen.
+
+| Tool | What it does |
+| --- | --- |
+| `spawn` | Opens a worker of a harness (claude, codex, opencode, pi, faro) with a task, a model and a folder, next to the caller's pane. Returns at once. |
+| `send` | Sends a message to the caller's parent or one of its workers. A parent's message reads like the user's. |
+| `reply` | Sets the result explicitly; otherwise the last answer of the turn is the result. |
+| `status` | The tree of agents and their state: starting, working, asking, done, exited. |
+| `cancel` | Stops a worker and closes its pane. |
+| `inbox` | For a root that cannot be woken (a plain shell), the results and questions waiting for it. |
+
+A worker's final answer reaches its parent as a new message, so no agent waits or polls. CLI:
+`agent-link status | stop | sessions | transcript <agent> | open <harness> | install | uninstall`.
+
+### cmux MCP (cmux only)
+
+Finds and reads agent sessions, arranges cmux and drives its browser.
 
 | Area | Tools |
 | --- | --- |
-| Agent sessions | `list_agent_sessions`, `read_agent_transcript` |
+| Agent sessions | `list_agent_sessions`, `read_agent_transcript`: every agent session on this machine (cmux's records joined with the agent-link journal), and its transcript read from disk, never from the screen |
 | Tabs and panes | `list_surfaces`, `new_surface`, `close_surface`, `focus_surface`, `rename_tab`, `move_surface`, `reorder_surface`, `surface_health`, `new_pane`, `resize_pane`, `swap_pane` |
 | Workspaces | `list_workspaces`, `current_workspace`, `select_workspace`, `new_workspace`, `rename_workspace`, `close_workspace` (shows the contents first, asks before closing running agents), `tree`, `identify` |
 | Browser | `browser`: navigate, snapshot, click, type, wait, tabs, console, screenshots |
