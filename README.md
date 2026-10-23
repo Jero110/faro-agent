@@ -81,7 +81,7 @@ Every pi option and command works too (`faro --model ...`, `/model`, `/login`).
 
 ```mermaid
 sequenceDiagram
-  actor You
+  participant You
   participant P as Planner (Faro, your pane)
   participant E as Executor (Faro, its own pane)
   participant W as Workers (claude, codex, opencode, faro)
