@@ -5,6 +5,7 @@ import { agentLinkHome, type BackendName } from "agent-link-core";
 import { runHub } from "./hub.ts";
 import { install, uninstall } from "./install.ts";
 import { runRoot } from "./open.ts";
+import { sessions, transcript } from "./sessions.ts";
 import { status, stop } from "./status.ts";
 
 export const USAGE = `usage: agent-link <command>
@@ -15,7 +16,9 @@ export const USAGE = `usage: agent-link <command>
   status                          the running hub's agents, as trees
   stop                            stop the hub and close its agents
   hub                             run the hub daemon in the foreground (normally started on demand)
-  open <harness> [args...]        open a harness here as a root whose results arrive by themselves`;
+  open <harness> [args...]        open a harness here as a root whose results arrive by themselves
+  sessions                        every agent the hub ever ran, from the journal (works without a hub)
+  transcript <agent> [--search t] an agent's last messages, read from its transcript (name or session id)`;
 
 export interface CliIo {
 	out: (line: string) => void;
@@ -51,6 +54,20 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
 				await runHub(xlHome);
 				// Serves until a signal; runDaemon exits the process then.
 				return await new Promise<number>(() => {});
+			case "sessions":
+				return sessions(xlHome, io.out);
+			case "transcript": {
+				const key = rest.find((a) => !a.startsWith("--"));
+				if (!key) {
+					io.err("usage: agent-link transcript <agent> [--search <text>] [--limit <n>]");
+					return 2;
+				}
+				const opt = (f: string) => {
+					const i = rest.indexOf(f);
+					return i >= 0 ? rest[i + 1] : undefined;
+				};
+				return transcript(xlHome, key, io.out, { search: opt("--search"), limit: Number(opt("--limit")) || undefined });
+			}
 			case "open":
 				return await runRoot({ argv: rest, env: io.env, err: io.err });
 			case undefined:

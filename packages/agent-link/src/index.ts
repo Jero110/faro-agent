@@ -4,5 +4,6 @@ export * from "./commands.ts";
 export * from "./hub.ts";
 export * from "./install.ts";
 export * from "./open.ts";
+export * from "./sessions.ts";
 export * from "./skill.ts";
 export * from "./status.ts";

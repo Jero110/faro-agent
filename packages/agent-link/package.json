@@ -13,6 +13,7 @@
 	"dependencies": {
 		"agent-link-cmux": "0.1.0",
 		"agent-link-core": "0.1.0",
-		"agent-link-tmux": "0.1.0"
+		"agent-link-tmux": "0.1.0",
+		"agent-transcripts": "0.1.0"
 	}
 }
