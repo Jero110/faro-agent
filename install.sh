@@ -4,8 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/Jero110/faro-agent/main/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/Jero110/faro-agent/main/install.sh | bash -s -- --backend tmux
 #
-# Options: --backend cmux|tmux skips the question. --deps first installs git, curl, tmux and Node.js 24 with apt
-# (Ubuntu, Debian, WSL). --with-harnesses also installs Claude Code, Codex and opencode with npm into ~/.local.
+# What is missing is installed first: Node.js 24, git, and tmux when you choose tmux (Homebrew on macOS, installing
+# Homebrew itself when needed; apt on Ubuntu, Debian and WSL). --no-deps skips that. --backend cmux|tmux skips the
+# question. --with-harnesses also installs Claude Code, Codex and opencode with npm into ~/.local.
 # On Windows, use install.ps1: it sets up WSL2 and runs this script inside it.
 #
 # It puts the code in ~/.faro/src (or uses the checkout it runs from), installs its npm dependencies, links
@@ -20,7 +21,7 @@ REF="${FARO_REF:-main}"
 BIN_DIR="${FARO_BIN_DIR:-$HOME/.local/bin}"
 ORIG_PATH="$PATH"
 BACKEND=""
-DEPS=no
+DEPS=yes
 HARNESSES=no
 HARNESS_PREFIX="${FARO_HARNESS_PREFIX:-$HOME/.local}"
 
@@ -29,8 +30,9 @@ while [ $# -gt 0 ]; do
 	--backend) BACKEND="${2:-}"; shift 2 ;;
 	--backend=*) BACKEND="${1#*=}"; shift ;;
 	--deps) DEPS=yes; shift ;;
+	--no-deps) DEPS=no; shift ;;
 	--with-harnesses) HARNESSES=yes; shift ;;
-	-h | --help) sed -n '2,17p' "$0" 2>/dev/null || true; exit 0 ;;
+	-h | --help) sed -n '2,18p' "$0" 2>/dev/null || true; exit 0 ;;
 	*) echo "faro install: unknown option $1" >&2; exit 2 ;;
 	esac
 done
@@ -40,60 +42,7 @@ fail() { printf 'faro install: %s\n' "$*" >&2; exit 1; }
 
 node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
 
-# 0. System packages, with --deps (apt only).
-if [ "$DEPS" = yes ]; then
-	[ "$(uname -s)" = Linux ] && command -v apt-get >/dev/null ||
-		fail "--deps installs packages with apt (Ubuntu, Debian, WSL). On macOS: brew install git node tmux"
-	if [ "$(id -u)" -eq 0 ]; then root() { "$@"; }; else root() { sudo "$@"; }; fi
-	say "Installing git, curl and tmux (apt may ask for your password)"
-	root apt-get update -qq
-	root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl tmux ca-certificates >/dev/null
-	if ! command -v node >/dev/null || [ "$(node_major)" -lt 24 ]; then
-		say "Installing Node.js 24 from NodeSource"
-		curl -fsSL https://deb.nodesource.com/setup_24.x -o /tmp/nodesource_setup.sh
-		root bash /tmp/nodesource_setup.sh >/dev/null
-		root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs >/dev/null
-		rm -f /tmp/nodesource_setup.sh
-		hash -r
-		[ "$(node_major)" -ge 24 ] ||
-			fail "Node.js 24 is installed in /usr/bin, but an older node comes first on PATH: $(command -v node). Remove it or put /usr/bin first."
-	fi
-fi
-
-# 1. Requirements.
-command -v git >/dev/null || fail "git is required"
-command -v node >/dev/null || fail "Node.js 24 or newer is required (https://nodejs.org)"
-command -v npm >/dev/null || fail "npm is required"
-NODE_MAJOR="$(node_major)"
-[ "$NODE_MAJOR" -ge 24 ] || fail "Node.js 24 or newer is required (found $(node -v))"
-
-# 2. The code: the checkout this script lives in, else a clone in ~/.faro/src.
-SELF_DIR=""
-if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-	SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-fi
-if [ -n "$SELF_DIR" ] && [ -f "$SELF_DIR/packages/faro/src/cli.ts" ] && [ -z "${FARO_DIR:-}" ]; then
-	DIR="$SELF_DIR"
-	say "Using the checkout in $DIR"
-else
-	DIR="${FARO_DIR:-$HOME/.faro/src}"
-	if [ -d "$DIR/.git" ]; then
-		say "Updating $DIR"
-		git -C "$DIR" fetch --quiet origin "$REF"
-		git -C "$DIR" checkout --quiet "$REF"
-		git -C "$DIR" pull --quiet --ff-only origin "$REF"
-	else
-		say "Downloading Faro into $DIR"
-		mkdir -p "$(dirname "$DIR")"
-		git clone --quiet --depth 1 --branch "$REF" "$REPO" "$DIR"
-	fi
-fi
-
-# 3. Dependencies, exactly as locked, without install scripts.
-say "Installing dependencies"
-(cd "$DIR" && npm ci --ignore-scripts --omit=dev --no-audit --no-fund --no-update-notifier --loglevel=error)
-
-# 4. cmux or tmux.
+# 1. cmux or tmux.
 has() { command -v "$1" >/dev/null 2>&1; }
 HAS_CMUX=no; { has cmux || [ -d /Applications/cmux.app ]; } && HAS_CMUX=yes
 HAS_TMUX=no; has tmux && HAS_TMUX=yes
@@ -120,12 +69,88 @@ if [ -z "$BACKEND" ]; then
 fi
 case "$BACKEND" in cmux | tmux) ;; *) fail "--backend must be cmux or tmux" ;; esac
 [ "$BACKEND" = cmux ] && [ "$HAS_CMUX" = no ] && echo "note: cmux was not found; install it from https://cmux.com before you start Faro"
-if [ "$BACKEND" = tmux ] && [ "$HAS_TMUX" = no ]; then
-	if [ "$(uname -s)" = Darwin ]; then HOW="brew install tmux"; else HOW="sudo apt install tmux, or run this script with --deps"; fi
-	echo "note: tmux was not found; install it ($HOW) before you start Faro"
+
+# 2. What is missing: Node.js 24, git, and tmux for the tmux backend.
+git_ok() { git --version >/dev/null 2>&1; }
+node_ok() { has node && has npm && [ "$(node_major)" -ge 24 ]; }
+MISSING=""
+git_ok || MISSING="$MISSING git"
+node_ok || MISSING="$MISSING node"
+[ "$BACKEND" = tmux ] && ! has tmux && MISSING="$MISSING tmux"
+MISSING="${MISSING# }"
+if [ -n "$MISSING" ] && [ "$DEPS" = yes ]; then
+	case "$(uname -s)" in
+	Darwin)
+		brew_env() { for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && eval "$("$b" shellenv)" && return 0; done; return 1; }
+		has brew || brew_env || true
+		if ! has brew; then
+			say "Installing Homebrew, which then installs: $MISSING (it may ask for your password)"
+			BREW_SH="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+			if [ -r /dev/tty ]; then /bin/bash -c "$BREW_SH" </dev/tty; else NONINTERACTIVE=1 /bin/bash -c "$BREW_SH"; fi
+			brew_env || fail "Homebrew did not install; install $MISSING by hand and run this again"
+		fi
+		say "Installing $MISSING with Homebrew"
+		# shellcheck disable=SC2086 # one formula per word
+		brew install $MISSING
+		;;
+	Linux)
+		command -v apt-get >/dev/null || fail "missing: $MISSING. Install them with your package manager and run this again"
+		if [ "$(id -u)" -eq 0 ]; then root() { "$@"; }; else root() { sudo "$@"; }; fi
+		APT="curl ca-certificates"
+		case " $MISSING " in *" git "*) APT="$APT git" ;; esac
+		case " $MISSING " in *" tmux "*) APT="$APT tmux" ;; esac
+		say "Installing $MISSING with apt (it may ask for your password)"
+		root apt-get update -qq
+		# shellcheck disable=SC2086 # one package per word
+		root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $APT >/dev/null
+		if ! node_ok; then
+			say "Installing Node.js 24 from NodeSource"
+			curl -fsSL https://deb.nodesource.com/setup_24.x -o /tmp/nodesource_setup.sh
+			root bash /tmp/nodesource_setup.sh >/dev/null
+			root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs >/dev/null
+			rm -f /tmp/nodesource_setup.sh
+		fi
+		;;
+	*) fail "missing: $MISSING. Install them and run this again" ;;
+	esac
+	hash -r
 fi
 
-# 5. Commands on PATH.
+# 3. Requirements.
+git_ok || fail "git is required"
+has node || fail "Node.js 24 or newer is required (https://nodejs.org)"
+has npm || fail "npm is required"
+[ "$(node_major)" -ge 24 ] ||
+	fail "Node.js 24 or newer is required, but $(command -v node) is $(node -v). Remove it or put the newer one first on PATH."
+[ "$BACKEND" = tmux ] && ! has tmux && fail "tmux is required for the tmux backend"
+
+# 4. The code: the checkout this script lives in, else a clone in ~/.faro/src.
+SELF_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+	SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+if [ -n "$SELF_DIR" ] && [ -f "$SELF_DIR/packages/faro/src/cli.ts" ] && [ -z "${FARO_DIR:-}" ]; then
+	DIR="$SELF_DIR"
+	say "Using the checkout in $DIR"
+else
+	DIR="${FARO_DIR:-$HOME/.faro/src}"
+	if [ -d "$DIR/.git" ]; then
+		say "Updating $DIR"
+		git -C "$DIR" fetch --quiet origin "$REF"
+		git -C "$DIR" checkout --quiet "$REF"
+		git -C "$DIR" pull --quiet --ff-only origin "$REF"
+	else
+		say "Downloading Faro into $DIR"
+		mkdir -p "$(dirname "$DIR")"
+		git clone --quiet --depth 1 --branch "$REF" "$REPO" "$DIR"
+	fi
+fi
+
+# 5. Dependencies, exactly as locked, without install scripts.
+say "Installing dependencies"
+(cd "$DIR" && npm ci --ignore-scripts --omit=dev --no-audit --no-fund --no-update-notifier --loglevel=error)
+
+# 6. Commands on PATH.
 mkdir -p "$BIN_DIR"
 link() {
 	cat >"$BIN_DIR/$1" <<EOF
@@ -138,14 +163,14 @@ link faro packages/faro/src/cli.ts
 link agent-link packages/agent-link/src/cli.ts
 export PATH="$BIN_DIR:$HARNESS_PREFIX/bin:$PATH"
 
-# 5b. The harnesses, with --with-harnesses, before setup so it registers the MCP servers with them.
+# 6b. The harnesses, with --with-harnesses, before setup so it registers the MCP servers with them.
 if [ "$HARNESSES" = yes ]; then
 	say "Installing Claude Code, Codex and opencode into $HARNESS_PREFIX"
 	npm install -g --prefix "$HARNESS_PREFIX" --no-audit --no-fund --no-update-notifier --loglevel=error \
 		@anthropic-ai/claude-code @openai/codex opencode-ai
 fi
 
-# 6. MCP servers, Faro's settings and its agent-link profile.
+# 7. MCP servers, Faro's settings and its agent-link profile.
 say "Setting up Faro for $BACKEND"
 node "$DIR/packages/faro/src/cli.ts" setup --backend "$BACKEND"
 

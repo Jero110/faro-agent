@@ -20,7 +20,7 @@ import { askContext, reviewInstructions } from "../src/extensions/workflow.ts";
 import { piCommand, runFaro, withSkillsDir } from "../src/launcher.ts";
 import { LOGO_WIDTH, logoLines } from "../src/logo.ts";
 import { EXTENSIONS, faroPaths, PI_CLI, SKILL_GROUP_DIRS, SKILLS_DIR } from "../src/paths.ts";
-import { ensureAgentDir, readConfig, setup, writeFaroProfile } from "../src/setup.ts";
+import { BRIDGE_SOURCE, ensureAgentDir, ensureBridge, readConfig, setup, writeFaroProfile } from "../src/setup.ts";
 import { catalogReadme, readCatalog, skillPath } from "../src/workflow/catalog.ts";
 import { renderReport } from "../src/workflow/report.ts";
 import { briefOf, buildRun, pickRoot } from "../src/workflow/run.ts";
@@ -69,6 +69,58 @@ test("without pi's bridge Faro starts on Anthropic's Sonnet", (t) => {
 	const settings = JSON.parse(readFileSync(join(paths.agentDir, "settings.json"), "utf8"));
 	assert.equal(settings.defaultProvider, "anthropic");
 	assert.deepEqual(settings.packages, []);
+});
+
+test("setup installs the Claude bridge with pi install when Claude Code is there and the bridge is not", (t) => {
+	const { home, env } = tempHome(t);
+	const paths = faroPaths(env, home);
+	ensureAgentDir(paths);
+	const settingsFile = join(paths.agentDir, "settings.json");
+	const runs: Array<{ argv: string[]; dir: string | undefined }> = [];
+	// A fake pi install: what the real one leaves behind (the package folder and the settings entry).
+	const fakePi = (argv: string[], e: NodeJS.ProcessEnv) => {
+		runs.push({ argv, dir: e.PI_CODING_AGENT_DIR });
+		mkdirSync(join(paths.agentDir, "npm", "node_modules", "pi-claude-bridge"), { recursive: true });
+		const s = JSON.parse(readFileSync(settingsFile, "utf8"));
+		s.packages = [...s.packages, BRIDGE_SOURCE];
+		writeFileSync(settingsFile, JSON.stringify(s));
+		return 0;
+	};
+	const lines: string[] = [];
+	assert.equal(
+		ensureBridge(paths, env, (l) => lines.push(l), fakePi),
+		"skipped",
+		"no claude on PATH",
+	);
+	assert.equal(runs.length, 0);
+	assert.match(lines.join("\n"), /Claude Code \(claude\) is not on PATH/);
+
+	const bin = join(home, "bin");
+	mkdirSync(bin);
+	writeFileSync(join(bin, "claude"), "#!/bin/sh\n", { mode: 0o755 });
+	const withClaude = { ...env, PATH: bin };
+	assert.equal(
+		ensureBridge(paths, withClaude, () => {}, fakePi),
+		"installed",
+	);
+	assert.deepEqual(runs[0]?.argv.slice(2), ["install", BRIDGE_SOURCE]);
+	assert.equal(runs[0]?.dir, paths.agentDir, "into Faro's agent dir, not pi's");
+	assert.equal(JSON.parse(readFileSync(settingsFile, "utf8")).defaultProvider, "claude-bridge");
+
+	assert.equal(
+		ensureBridge(paths, withClaude, () => {}, fakePi),
+		"present",
+	);
+	assert.equal(runs.length, 1, "installed once");
+	assert.equal(
+		ensureBridge(
+			paths,
+			withClaude,
+			() => {},
+			() => 1,
+		),
+		"present",
+	);
 });
 
 test("setup: cmux adds the cmux MCP to Faro and records the backend; tmux takes it out again", (t) => {

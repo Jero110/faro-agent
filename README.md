@@ -49,19 +49,17 @@ The installer asks one question, **cmux or tmux**, and sets up the rest:
 - `faro` and `agent-link` in `~/.local/bin`, the code in `~/.faro/src`.
 - The agent-link MCP server registered with every harness it finds (Claude Code, Codex, opencode, pi, Faro).
 - With cmux, also the cmux MCP server. With tmux, only agent-link.
-- Faro's own pi config in `~/.faro/agent`, reusing your pi login. Default model: Claude Sonnet.
+- Faro's own pi config in `~/.faro/agent`, reusing your pi login, with the Claude bridge. Default model: Claude Sonnet.
 
-Skip the question with `bash -s -- --backend cmux` (or `tmux`). Requirements: macOS or Linux, Node.js 24+, git, and
-cmux ([cmux.com](https://cmux.com), macOS, recommended) or tmux. Install the harnesses you want Faro to use: `claude`,
-`codex`, `opencode`.
+Skip the question with `bash -s -- --backend cmux` (or `tmux`). Whatever is missing is installed first: Node.js 24,
+git, and tmux if you choose it (with Homebrew on macOS, which is installed too if needed; with apt on Ubuntu, Debian
+and WSL). `--no-deps` skips that step. cmux comes from [cmux.com](https://cmux.com) (macOS).
 
-Two more options do that for you:
-
-- `--deps` installs git, curl, tmux and Node.js 24 with apt (Ubuntu, Debian, WSL).
-- `--with-harnesses` installs Claude Code, Codex and opencode into `~/.local`, before the MCP servers are registered.
+When Claude Code is installed, setup also adds the Claude bridge, so Faro runs Claude models on your Claude login.
+`--with-harnesses` installs Claude Code, Codex and opencode first (into `~/.local`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Jero110/faro-agent/main/install.sh | bash -s -- --backend tmux --deps --with-harnesses
+curl -fsSL https://raw.githubusercontent.com/Jero110/faro-agent/main/install.sh | bash -s -- --with-harnesses
 ```
 
 ### Windows

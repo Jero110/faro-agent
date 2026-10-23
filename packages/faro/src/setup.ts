@@ -3,12 +3,13 @@
 // Faro keeps its own pi config dir (~/.faro/agent) so plain pi and Faro never share settings. It reuses pi's
 // login: auth.json, the model store and provider packages are copied from ~/.pi/agent the first time, so the
 // same models work. Nothing in either folder is ever deleted.
+import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { agentLinkServer, install, mcpCommand, type ServerSpec, uninstall } from "agent-link";
+import { agentLinkServer, install, mcpCommand, type ServerSpec, uninstall, which } from "agent-link";
 import { agentLinkHome, type BackendName, hubPaths, PLACE_ENV, stableNode } from "agent-link-core";
-import { FARO_CLI, type FaroPaths, SKILL_GROUP_DIRS, SKILLS_DIR } from "./paths.ts";
+import { FARO_CLI, type FaroPaths, PI_CLI, SKILL_GROUP_DIRS, SKILLS_DIR } from "./paths.ts";
 
 /** The mark Faro puts in settings.json, so it never rewrites settings it did not write. */
 export const SETTINGS_VERSION = 1;
@@ -16,6 +17,9 @@ export const SETTINGS_VERSION = 1;
 export const DEFAULT_MODEL = "claude-sonnet-5-5";
 /** The pi package that serves Claude models through the Claude Code login, when the user has it. */
 export const BRIDGE_PACKAGE = "pi-claude-bridge";
+
+/** The bridge version setup installs when pi does not have it, pinned like every other dependency. */
+export const BRIDGE_SOURCE = `npm:${BRIDGE_PACKAGE}@0.9.3`;
 
 const IMPORTED_FILES = ["auth.json", "models-store.json", "claude-bridge.json"] as const;
 
@@ -108,6 +112,58 @@ export function ensureAgentDir(paths: FaroPaths): AgentDirReport {
 	return report;
 }
 
+/** Runs a command with the user's terminal (pi install prints npm's progress); returns its exit status. */
+export type Run = (argv: string[], env: NodeJS.ProcessEnv) => number;
+
+const runInherit: Run = (argv, env) => spawnSync(argv[0] ?? "", argv.slice(1), { env, stdio: "inherit" }).status ?? 1;
+
+/**
+ * Installs the Claude bridge into Faro's agent dir when Claude Code is there and the bridge is not, and makes it the
+ * default provider.
+ * Problem: Faro got the bridge only by copying pi's packages. Example: on a machine where pi never had it, a fresh
+ * install started Faro on the anthropic provider, which needs an API key, though the user was logged in to Claude
+ * Code. Solution: setup runs `pi install` for the pinned bridge with PI_CODING_AGENT_DIR set to Faro's agent dir.
+ */
+export function ensureBridge(
+	paths: FaroPaths,
+	env: NodeJS.ProcessEnv,
+	out: (line: string) => void,
+	run: Run = runInherit,
+): "present" | "installed" | "skipped" | "failed" {
+	const file = join(paths.agentDir, "settings.json");
+	const installed = () =>
+		bridgeEntry(readJson(file)) !== undefined &&
+		existsSync(join(paths.agentDir, "npm", "node_modules", BRIDGE_PACKAGE));
+	const useBridge = () => {
+		const settings = readJson(file);
+		if (isObj(settings) && settings.defaultProvider !== "claude-bridge") {
+			settings.defaultProvider = "claude-bridge";
+			writeJson(file, settings);
+		}
+	};
+	if (installed()) {
+		useBridge();
+		return "present";
+	}
+	if (!which("claude", env)) {
+		out(
+			"faro: Claude Code (claude) is not on PATH, so the Claude bridge was skipped and Faro starts on the anthropic provider. Install Claude Code and run `faro setup` again to use your Claude login.",
+		);
+		return "skipped";
+	}
+	out(`faro: installing the Claude bridge (${BRIDGE_SOURCE}), so Faro uses your Claude Code login`);
+	const status = run([process.execPath, PI_CLI, "install", BRIDGE_SOURCE], {
+		...env,
+		PI_CODING_AGENT_DIR: paths.agentDir,
+	});
+	if (status !== 0 || !installed()) {
+		out(`faro: could not install the Claude bridge (pi install exited ${status}); run \`faro setup\` again later`);
+		return "failed";
+	}
+	useBridge();
+	return "installed";
+}
+
 /**
  * The profile that lets agent-link open Faro as a worker or a root: pi's adapter, running this checkout's
  * CLI with the node that runs Faro now (absolute paths, so it works whatever PATH the hub daemon has).
@@ -175,6 +231,8 @@ export interface SetupOptions {
 	home: string;
 	env: NodeJS.ProcessEnv;
 	out: (line: string) => void;
+	/** Runs pi install for the Claude bridge (tests pass a fake). */
+	run?: Run;
 }
 
 /**
@@ -189,6 +247,7 @@ export function setup(opts: SetupOptions): void {
 			? `faro: wrote ${join(paths.agentDir, "settings.json")}${dir.copied.length ? ` (copied from ${paths.piAgentDir}: ${dir.copied.join(", ")})` : ""}`
 			: `faro: ${paths.agentDir} already set up`,
 	);
+	ensureBridge(paths, env, out, opts.run);
 	out(`faro: agent-link profile ${writeFaroProfile(env)}`);
 	install({ home, env, backend, command: mcpCommand(backend), out });
 	if (backend === "cmux") {
