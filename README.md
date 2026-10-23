@@ -6,6 +6,12 @@
 
 **Bring light to your agents.**
 
+<p>
+  <a href="https://github.com/Jero110/faro-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Jero110/faro-agent/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-339933?style=flat-square">
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+</p>
+
 Faro is a coding agent built on [pi](https://github.com/earendil-works/pi) that plans with you, then hands the plan to
 other agents (Claude Code, Codex, opencode, more Faros) that build it in their own terminal panes while you watch.
 Afterwards it tells you what each one did, with which skills, how many tokens and how much time.
@@ -114,22 +120,70 @@ CLI: `agent-link status | stop | sessions | transcript <agent> | open <harness> 
 | Workspaces | `list_workspaces`, `current_workspace`, `select_workspace`, `new_workspace`, `rename_workspace`, `close_workspace` (shows the contents first, asks before closing running agents), `tree`, `identify` |
 | Browser | `browser`: navigate, snapshot, click, type, wait, tabs, console, screenshots |
 
-## Repository
+## Architecture
 
-```
-packages/
-  faro/               the faro command: launcher, setup, extensions (header, questions, /workflow)
-  agent-link-core/    hub daemon, adapters (claude, codex, opencode, pi), MCP server, session journal
-  agent-link/         the composed hub and the agent-link CLI
-  agent-link-cmux/    cmux pane backend and MCP entry
-  agent-link-tmux/    tmux pane backend and MCP entry
-  agent-transcripts/  one reader for Claude, Codex, opencode, pi and Faro transcripts
-  cmux-mcp/           the cmux MCP server
-skills/               the four skill groups and their catalog
-docs/                 architecture and workflow notes
+```mermaid
+flowchart LR
+  you(["you"]) --> faro
+  subgraph faro["faro: pi + 3 extensions"]
+    ext["header · ask_user_question · /workflow"]
+  end
+  faro -- "MCP stdio" --> mcp["agent-link MCP<br/>spawn · send · reply · status · cancel · inbox"]
+  mcp -- "HTTP over a Unix socket + token" --> hub["hub daemon<br/>one FIFO queue per agent"]
+  hub -- "messaging socket" --> claude["Claude Code"]
+  hub -- "app-server" --> codex["Codex"]
+  hub -- "HTTP server" --> oc["opencode"]
+  hub -- "extension socket" --> piw["pi · Faro"]
+  hub -- "open, read, keys" --> panes["cmux or tmux panes"]
+  hub --> journal[("~/.agent-link/sessions/*.json")]
+  cmux["cmux MCP"] --> journal
+  cmux --> tr[("transcripts on disk")]
+  ext -- "/workflow review" --> journal
+  ext -- "/workflow review" --> tr
 ```
 
-How the pieces fit: [docs/architecture.md](docs/architecture.md).
+Every agent runs in its own pane with its native UI, and the hub reaches it by that harness's own interface, not by
+typing into the screen. Nobody waits: `spawn` and `send` return at once, and a worker's final answer arrives in its
+parent as a new message. The journal records every agent (parent, task, pane, session id, transcript path), so the
+cmux MCP and `/workflow review` work after the hub or the agents are gone.
+
+| Package | What it is |
+| --- | --- |
+| [`packages/faro`](packages/faro) | the `faro` command: launcher, setup, extensions (header, `ask_user_question`, `/workflow`) |
+| [`packages/agent-link-core`](packages/agent-link-core) | hub daemon, one adapter per harness (claude, codex, opencode, pi), MCP server, guard, session journal |
+| [`packages/agent-link`](packages/agent-link) | the composed hub and the `agent-link` CLI (`status`, `sessions`, `transcript`, `install`) |
+| [`packages/agent-link-cmux`](packages/agent-link-cmux) | cmux pane backend and its MCP entry |
+| [`packages/agent-link-tmux`](packages/agent-link-tmux) | tmux pane backend and its MCP entry |
+| [`packages/agent-transcripts`](packages/agent-transcripts) | one reader for Claude, Codex, opencode, pi and Faro transcripts: messages, tokens, time, tools, skills |
+| [`packages/cmux-mcp`](packages/cmux-mcp) | the cmux MCP server: agent sessions, tabs, panes, workspaces, browser |
+| [`skills`](skills) | the four skill groups and their catalog |
+
+How the pieces fit, in detail: [docs/architecture.md](docs/architecture.md).
+
+## FAQ
+
+**Why pi, and not a harness of its own?**
+pi is small and its extension API gives Faro everything it needs (tools, commands, messages that start a turn, the
+header) without a fork. Faro pins pi and keeps its own config in `~/.faro/agent`, so your plain pi stays as it is.
+
+**Do I need cmux?**
+You need cmux or tmux, because every agent gets its own pane. cmux adds the cmux MCP (sessions, layout, browser); with
+tmux you get agent-link alone.
+
+**What does it cost?**
+What each harness spends with its provider. Faro calls no model on its own; `/workflow review` shows the tokens per
+role, harness, agent and message. opencode defaults to a free model.
+
+**What does Faro keep, and where?**
+`~/.faro`: Faro's pi config, sessions and `/workflow` reports. `~/.agent-link`: the hub socket and token, the event log,
+the session journal and the profiles. Nothing leaves your machine except what each harness sends to its own provider.
+
+**Is it safe to leave several agents running?**
+A guard checks shell commands: workers are blocked from `rm -rf`, `sudo`, `git push`, `git reset --hard` and similar,
+and your own session is asked first. It is not a sandbox, and it only sees shell commands.
+
+**Can workers launch their own workers?**
+Yes: the executor is one. A worker talks only with its parent and its own workers.
 
 ## Develop
 

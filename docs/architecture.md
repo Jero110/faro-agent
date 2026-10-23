@@ -37,13 +37,16 @@ extensions.
   HTTP server, pi's extension socket. A harness without one can use a `paste` profile.
 - **Pane backends**: open, close, read, keys, paste, alive. Workers open next to their parent, never stealing focus.
 - **Messages**: one FIFO queue per agent; the hub prompts an agent only when it is idle, so each message gets its own
-  turn and result. A worker's final answer reaches its parent as `[agent-link] <name> (...) finished: ...`.
+  turn and result. A worker's first message is its task, as a person would write it, and its parent's messages arrive
+  plain; a message from anyone else starts with `[agent-link] <name>:`. A worker's final answer reaches its parent as
+  `[agent-link] <name> (...) finished: ...`.
 - **Journal**: on every change the hub writes `~/.agent-link/sessions/<id>.json`: name, parent, root, task, harness,
   model, state, pane, and the harness's own session id and transcript path (reported by the adapters). It outlives the
   hub and the agent, which is what makes recovery and `/workflow review` possible.
 
-Identity reaches a spawned harness through `AGENT_LINK_AGENT`, `AGENT_LINK_HUB`, `AGENT_LINK_TOKEN` and
-`AGENT_LINK_DEPTH`. A guard lets workers do normal work, blocks the catastrophic, and asks for the rest.
+Identity reaches a spawned harness through `AGENT_LINK_AGENT`, `AGENT_LINK_HUB`, `AGENT_LINK_TOKEN`,
+`AGENT_LINK_DEPTH` and `AGENT_LINK_HOME`. `AGENT_LINK_READ_DIRS` lists folders outside its cwd a worker may read
+without a prompt (Faro shares its skills folder); a profile may add env of its own (Faro's `FARO_HOME`). A guard lets workers do normal work, blocks the catastrophic, and asks for the rest.
 
 ## cmux MCP
 
