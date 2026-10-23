@@ -37,7 +37,9 @@ the format; you rarely need it.
   checkout.
 - Results arrive by themselves as messages. After spawning, end your turn; never wait, sleep or poll `status`.
 
-The brief for each agent (write long ones to a file and pass the path):
+The brief for each agent. Send it inline; when it is long, write it inside the project
+(`docs/plans/<slug>-briefs/<T-id>.md`) and pass that path: agents in other harnesses may stop at a permission prompt
+for files outside their working folder (opencode does for `/tmp`).
 
 ```
 Task <T-id> of <absolute plan path>: <title>
