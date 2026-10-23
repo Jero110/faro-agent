@@ -43,7 +43,10 @@ exit 0
 		calls: () => {
 			const log = join(dir, "log");
 			if (!existsSync(log)) return [];
-			return readFileSync(log, "utf8")
+			// A call still being written has no record separator yet: leave it for the next read.
+			const text = readFileSync(log, "utf8");
+			return text
+				.slice(0, text.lastIndexOf("\x1e") + 1)
 				.split("\x1e")
 				.filter(Boolean)
 				.map((l) => l.split("\x1f").slice(0, -1));

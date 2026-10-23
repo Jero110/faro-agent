@@ -22,11 +22,12 @@ function gates(fake: FakeCli, sizes: string[] = []) {
 		const opens = fake.calls().filter((c) => OPENS.includes(c[0] ?? ""));
 		for (; seen < opens.length; seen++) {
 			const path = opens[seen]?.join(" ").match(/\/\S+?\.go\b/)?.[0];
+			// The fake CLI may still be writing this call's log line; read it again on the next tick.
+			// Problem: skipping it left that pane without a size, and the backend waited out its timeout.
+			if (!path) break;
 			// Written whole and renamed, as the gate does, so the backend never reads half a file.
-			if (path) {
-				writeFileSync(`${path}.tmp`, `${sizes[seen] ?? "40 120"}\n`);
-				renameSync(`${path}.tmp`, `${path}.size`);
-			}
+			writeFileSync(`${path}.tmp`, `${sizes[seen] ?? "40 120"}\n`);
+			renameSync(`${path}.tmp`, `${path}.size`);
 		}
 	}, 5);
 	return () => clearInterval(timer);
@@ -45,7 +46,7 @@ function setup(responses: Record<string, string> = {}, sizes: string[] = []) {
 	const env = { ...fake.env, CMUX_SURFACE_ID: "surface:999", CMUX_WORKSPACE_ID: "workspace:999" };
 	const stop = gates(fake, sizes);
 	after(stop);
-	return { fake, launchDir, backend: createCmuxBackend({ env, launchDir, sizeTimeoutMs: 10_000 }) };
+	return { fake, launchDir, backend: createCmuxBackend({ env, launchDir, sizeTimeoutMs: 2000 }) };
 }
 
 test("the first worker opens right of the caller, the next ones below the previous, titled, never focused", async () => {
