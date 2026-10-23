@@ -21,7 +21,9 @@
 		"check": "biome check . && tsc --noEmit -p tsconfig.json && node scripts/check-pinned-deps.mjs",
 		"test": "node --test packages/*/test/*.test.ts",
 		"sync-versions": "node scripts/sync-versions.mjs",
-		"prepare": "husky"
+		"prepare": "husky",
+		"skills": "node scripts/skills.mjs",
+		"logo": "node scripts/logo.mjs assets/faro.png"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.15",

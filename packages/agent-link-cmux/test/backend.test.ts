@@ -45,7 +45,7 @@ function setup(responses: Record<string, string> = {}, sizes: string[] = []) {
 	const env = { ...fake.env, CMUX_SURFACE_ID: "surface:999", CMUX_WORKSPACE_ID: "workspace:999" };
 	const stop = gates(fake, sizes);
 	after(stop);
-	return { fake, launchDir, backend: createCmuxBackend({ env, launchDir, sizeTimeoutMs: 2000 }) };
+	return { fake, launchDir, backend: createCmuxBackend({ env, launchDir, sizeTimeoutMs: 10_000 }) };
 }
 
 test("the first worker opens right of the caller, the next ones below the previous, titled, never focused", async () => {

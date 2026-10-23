@@ -1,0 +1,98 @@
+// `faro [pi args...]`: pi with Faro's config dir and extensions, opened as an agent-link root so the results
+// of the agents it launches reach it by themselves.
+//
+// Two modes:
+// - Root (the user typed `faro`): register with the agent-link hub as harness "faro". The hub answers with the
+//   command for the Faro profile (this CLI again, plus agent-link's pi extension and its identity env), which
+//   runs here in the user's terminal.
+// - Agent (AGENT_LINK_AGENT is set: the hub started this run, as a root's command or a worker's pane): run pi.
+// Without a hub (FARO_NO_LINK=1, or the hub cannot start), Faro still runs as plain pi with its extensions.
+import { spawn } from "node:child_process";
+import { constants } from "node:os";
+import { type RootOptions, runRoot } from "agent-link";
+import type { PaneCommand } from "agent-link-core";
+import { EXTENSIONS, type FaroPaths, faroPaths, PI_CLI } from "./paths.ts";
+import { ensureAgentDir, writeFaroProfile } from "./setup.ts";
+
+export interface LaunchOptions {
+	argv: readonly string[];
+	env?: NodeJS.ProcessEnv;
+	home?: string;
+	cwd?: string;
+	err?: (line: string) => void;
+	/** Runs a command in this terminal; tests pass a fake. */
+	run?: (cmd: PaneCommand) => Promise<number>;
+	/** Registers as an agent-link root; tests pass a fake or a runRoot bound to a test hub. */
+	root?: (opts: RootOptions) => Promise<number>;
+}
+
+/** The pi command line for one Faro run. */
+export function piCommand(paths: FaroPaths, argv: readonly string[], env: NodeJS.ProcessEnv, cwd: string): PaneCommand {
+	return {
+		argv: [process.execPath, PI_CLI, ...EXTENSIONS.flatMap((e) => ["-e", e]), ...argv],
+		env: { ...env, PI_CODING_AGENT_DIR: paths.agentDir, FARO_HOME: paths.home } as Record<string, string>,
+		cwd,
+	};
+}
+
+export async function runFaro(opts: LaunchOptions): Promise<number> {
+	const env = opts.env ?? process.env;
+	const err = opts.err ?? ((l: string) => process.stderr.write(`${l}\n`));
+	const cwd = opts.cwd ?? process.cwd();
+	const run = opts.run ?? runInTerminal;
+	const paths = faroPaths(env, opts.home);
+	const setup = ensureAgentDir(paths);
+	if (setup.wrote)
+		err(`faro: set up ${paths.agentDir}${setup.copied.length ? ` (login copied from ${paths.piAgentDir})` : ""}`);
+
+	if (env.AGENT_LINK_AGENT || env.FARO_NO_LINK === "1") return run(piCommand(paths, opts.argv, env, cwd));
+
+	writeFaroProfile(env);
+	let started = false;
+	const notes: string[] = [];
+	const code = await (opts.root ?? runRoot)({
+		argv: ["faro", ...opts.argv],
+		env: { ...env, PI_CODING_AGENT_DIR: paths.agentDir, FARO_HOME: paths.home },
+		cwd,
+		err: (l) => notes.push(l),
+		run: (cmd) => {
+			started = true;
+			return run(cmd);
+		},
+	});
+	if (started) return code;
+	// The hub could not take Faro as a root; run without agent-link rather than not at all.
+	for (const n of notes) err(n);
+	err("faro: running without agent-link (spawning other agents is off). `agent-link status` shows the hub.");
+	return run(piCommand(paths, opts.argv, env, cwd));
+}
+
+/**
+ * Runs a command with this terminal's stdio and resolves with its exit code (128 + n for a signal).
+ * Ctrl-C reaches the whole foreground group; pi handles it, so this process ignores it while pi runs.
+ */
+export function runInTerminal(cmd: PaneCommand): Promise<number> {
+	return new Promise((resolve) => {
+		const [file, ...args] = cmd.argv;
+		if (!file) return resolve(2);
+		const child = spawn(file, args, { stdio: "inherit", env: cmd.env, cwd: cmd.cwd });
+		const ignore = () => {};
+		const forward = (sig: NodeJS.Signals) => child.kill(sig);
+		process.on("SIGINT", ignore);
+		process.on("SIGQUIT", ignore);
+		process.on("SIGTERM", forward);
+		process.on("SIGHUP", forward);
+		const done = (code: number) => {
+			process.off("SIGINT", ignore);
+			process.off("SIGQUIT", ignore);
+			process.off("SIGTERM", forward);
+			process.off("SIGHUP", forward);
+			resolve(code);
+		};
+		child.once("error", (e) => {
+			process.stderr.write(`faro: could not run ${file}: ${e.message}\n`);
+			done(127);
+		});
+		child.once("exit", (code, signal) => done(signal ? 128 + (constants.signals[signal] ?? 0) : (code ?? 1)));
+	});
+}
