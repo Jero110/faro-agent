@@ -3,7 +3,7 @@
 // Faro keeps its own pi config dir (~/.faro/agent) so plain pi and Faro never share settings. It reuses pi's
 // login: auth.json, the model store and provider packages are copied from ~/.pi/agent the first time, so the
 // same models work. Nothing in either folder is ever deleted.
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentLinkServer, install, mcpCommand, type ServerSpec, uninstall } from "agent-link";
@@ -205,5 +205,6 @@ export function teardown(opts: Omit<SetupOptions, "backend">): void {
 	uninstall({ home, env, server: cmuxServer(paths), out });
 	uninstall({ home, env, server: agentLinkServer(home, env), out });
 	setFaroMcp(paths, "cmux", undefined);
+	rmSync(join(hubPaths(agentLinkHome(env)).home, "profiles", "faro.json"), { force: true });
 	out(`faro: kept ${paths.home} (sessions, reports, settings); delete it by hand if you want them gone`);
 }

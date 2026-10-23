@@ -1,0 +1,66 @@
+# Architecture
+
+Faro is three things that stay separate: **pi** (the agent, unmodified), **agent-link** (agents launching and talking to
+agents) and the **cmux MCP** (finding sessions and arranging cmux). Faro itself is a launcher and three pi extensions.
+
+```
+ you ─► faro (pi + extensions) ── MCP stdio ─► agent-link MCP ── HTTP over a Unix socket ─► hub daemon
+                                                                                              ├─ registry, one queue per agent
+                                                                                              ├─ adapters: claude, codex, opencode, pi
+                                                                                              ├─ pane backends: cmux, tmux
+                                                                                              └─ journal: ~/.agent-link/sessions/*.json
+        any harness ── MCP stdio ─► cmux MCP ─► cmux CLI, the journal, transcripts on disk
+```
+
+## Faro
+
+`faro` (packages/faro) runs pi from its pinned dependency with:
+
+- `PI_CODING_AGENT_DIR=~/.faro/agent`: Faro's own settings, sessions and MCP servers; plain pi stays untouched. The first
+  run copies pi's login (auth, model store, the Claude bridge package if you use it) so the same models work.
+- `-e` for its extensions: `brand.ts` (header and title), `ask.ts` (`ask_user_question`), `workflow.ts` (`/workflow`).
+- The four skill group folders as pi skill paths. Only `planner` and `executor` are visible to the model on their own;
+  every other skill carries `disable-model-invocation: true` and loads when a plan or the user names it.
+
+A user's `faro` registers with the agent-link hub as a root of harness `faro`; the hub answers with the command to run
+(the Faro profile in `~/.agent-link/profiles/faro.json`: this CLI, plus agent-link's pi extension and identity env). When
+the hub starts a Faro worker, the same profile opens it in a pane. Without a hub, Faro runs as plain pi plus its
+extensions.
+
+## agent-link
+
+- **Hub daemon**: one per machine, socket `~/.agent-link/hub.sock` (0600), token `~/.agent-link/token`. Started on demand
+  by the MCP server or `agent-link open`.
+- **MCP server**: six tools (`spawn`, `send`, `reply`, `status`, `cancel`, `inbox`), one entry per backend
+  (`agent-link-cmux`, `agent-link-tmux`). The model never sees adapters.
+- **Adapters**, one per harness, each by its native path: Claude Code's messaging socket, Codex's app-server, opencode's
+  HTTP server, pi's extension socket. A harness without one can use a `paste` profile.
+- **Pane backends**: open, close, read, keys, paste, alive. Workers open next to their parent, never stealing focus.
+- **Messages**: one FIFO queue per agent; the hub prompts an agent only when it is idle, so each message gets its own
+  turn and result. A worker's final answer reaches its parent as `[agent-link] <name> (...) finished: ...`.
+- **Journal**: on every change the hub writes `~/.agent-link/sessions/<id>.json`: name, parent, root, task, harness,
+  model, state, pane, and the harness's own session id and transcript path (reported by the adapters). It outlives the
+  hub and the agent, which is what makes recovery and `/workflow review` possible.
+
+Identity reaches a spawned harness through `AGENT_LINK_AGENT`, `AGENT_LINK_HUB`, `AGENT_LINK_TOKEN` and
+`AGENT_LINK_DEPTH`. A guard lets workers do normal work, blocks the catastrophic, and asks for the rest.
+
+## cmux MCP
+
+A separate server (`packages/cmux-mcp`) with the tools in the README. Sessions come from two sources joined by session
+id: cmux's own records (`cmux sessions`, which work without the cmux socket) and the agent-link journal (which adds
+names, tasks, parents and sessions cmux does not see). `read_agent_transcript` reads the transcript file through
+`agent-transcripts`; it never reads the terminal screen.
+
+## agent-transcripts
+
+One reader for every harness's session format (Claude Code and Codex JSONL, opencode's SQLite database, pi and Faro
+JSONL) into one shape: messages with role, text, model, token usage, time per answer, tool calls and the skills loaded.
+
+## /workflow
+
+- `review` picks the run of the current session (or `--last`), rebuilds its tree from the journal, assigns roles from
+  its shape (the root plans, an `executor` child runs the plan, its descendants are workers), reads every transcript and
+  writes a report to `~/.faro/reports/`. The numbers are computed; the session's model then writes the summary and the
+  recommendations from them.
+- `ask` gives the model the architecture, the skills catalog and what is installed here, then the question.
