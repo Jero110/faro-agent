@@ -20,8 +20,34 @@ import { SKILL_MD, SKILL_NAME } from "./skill.ts";
 
 export const SERVER_NAME = "agent-link";
 export const IDENTITY_VARS = ["AGENT_LINK_AGENT", "AGENT_LINK_HUB", "AGENT_LINK_TOKEN", "AGENT_LINK_DEPTH"] as const;
-const BEGIN = "# agent-link: begin (written by `agent-link install`; `agent-link uninstall` removes it)";
-const END = "# agent-link: end";
+
+/**
+ * One MCP server to register with every harness found. agent-link registers its own; another package (the
+ * cmux MCP, through Faro's setup) passes its spec and its own manifest, and gets the same backups and undo.
+ */
+export interface ServerSpec {
+	name: string;
+	description: string;
+	/** Env vars Codex must pass on to the server (Codex filters an MCP server's env). */
+	envVars: readonly string[];
+	/** A skill written next to the registration, or none. */
+	skill?: { name: string; md: string };
+	/** Where the steps are recorded for uninstall. */
+	manifest: string;
+}
+
+export function agentLinkServer(home: string, env: NodeJS.ProcessEnv): ServerSpec {
+	return {
+		name: SERVER_NAME,
+		description: "Launch and message other coding agents",
+		envVars: [...IDENTITY_VARS, ...PLACE_ENV],
+		skill: { name: SKILL_NAME, md: SKILL_MD },
+		manifest: manifestPath(home, env),
+	};
+}
+
+const beginMark = (name: string) => `# ${name}: begin (written by an installer; its uninstall removes it)`;
+const endMark = (name: string) => `# ${name}: end`;
 
 export interface InstallOptions {
 	/** The user's home: every config path is under it. Tests pass a temporary one. */
@@ -31,6 +57,8 @@ export interface InstallOptions {
 	backend?: BackendName;
 	/** Default: node and the backend's MCP entry. */
 	command?: McpCommand;
+	/** Default: the agent-link server. */
+	server?: ServerSpec;
 	out?: (line: string) => void;
 }
 
@@ -82,7 +110,9 @@ export function install(opts: InstallOptions): Manifest {
 	const out = opts.out ?? ((l: string) => process.stdout.write(`${l}\n`));
 	const backend = opts.backend ?? defaultBackend(env);
 	const command = opts.command ?? mcpCommand(backend);
-	const mpath = manifestPath(home, env);
+	const server = opts.server ?? agentLinkServer(home, env);
+	const SERVER_NAME = server.name;
+	const mpath = server.manifest;
 	const previous = readManifest(mpath);
 	// A step done by an earlier install keeps what it recorded (created files and folders, first backups).
 	const before = (harness: string, kind: Step["kind"]) =>
@@ -99,7 +129,7 @@ export function install(opts: InstallOptions): Manifest {
 	};
 	const steps: Step[] = [];
 	const cmdline = [command.command, ...command.args];
-	out(`agent-link install: backend ${backend}, MCP server "${SERVER_NAME}" = ${cmdline.join(" ")}`);
+	out(`${SERVER_NAME} install: backend ${backend}, MCP server "${SERVER_NAME}" = ${cmdline.join(" ")}`);
 
 	// Claude Code: its CLI edits ~/.claude.json. Removing first makes a repeated install replace the entry.
 	const claude = which("claude", env);
@@ -126,18 +156,7 @@ export function install(opts: InstallOptions): Manifest {
 	if (pi) {
 		const file = join(home, ".pi", "agent", "mcp.json");
 		const bak = backup(file);
-		run([
-			pi,
-			"mcp",
-			"add",
-			SERVER_NAME,
-			"--exposure",
-			"direct",
-			"--description",
-			"Launch and message other coding agents",
-			"--",
-			...cmdline,
-		]);
+		run([pi, "mcp", "add", SERVER_NAME, "--exposure", "direct", "--description", server.description, "--", ...cmdline]);
 		steps.push({ harness: "pi", kind: "cli", undo: [pi, "mcp", "remove", SERVER_NAME], file, backup: bak });
 		out(
 			`pi: added MCP server ${SERVER_NAME} (pi mcp add --exposure direct)${bak ? `; backup ${tilde(home, bak)}` : ""}`,
@@ -153,17 +172,17 @@ export function install(opts: InstallOptions): Manifest {
 		const created = prev?.kind === "toml-block" ? prev.created : !existsSync(file);
 		const bak = backup(file);
 		const block = [
-			BEGIN,
+			beginMark(SERVER_NAME),
 			`[mcp_servers.${SERVER_NAME}]`,
 			`command = ${JSON.stringify(command.command)}`,
 			`args = ${JSON.stringify(command.args)}`,
-			`env_vars = ${JSON.stringify([...IDENTITY_VARS, ...PLACE_ENV])}`,
+			`env_vars = ${JSON.stringify(server.envVars)}`,
 			'default_tools_approval_mode = "approve"',
-			END,
+			endMark(SERVER_NAME),
 		].join("\n");
 		const current = existsSync(file) ? readFileSync(file, "utf8") : "";
-		const without = removeBlock(current);
-		if (/^\s*\[mcp_servers\.(agent-link|"agent-link")\]/m.test(without)) {
+		const without = removeBlock(current, SERVER_NAME);
+		if (new RegExp(`^\\s*\\[mcp_servers\\.(${SERVER_NAME}|"${SERVER_NAME}")\\]`, "m").test(without)) {
 			out(`codex: ${tilde(home, file)} already has its own [mcp_servers.${SERVER_NAME}], left as it is`);
 		} else {
 			mkdirSync(codexDir, { recursive: true });
@@ -208,15 +227,17 @@ export function install(opts: InstallOptions): Manifest {
 	// Skills. ~/.agents/skills is read by pi, Codex and opencode. Their own skills folders are left out on
 	// purpose: pi keeps the first of two skills with one name and warns about the second (pi docs/skills.md),
 	// so a copy there would warn on every start. Claude Code reads only ~/.claude/skills.
-	const skillDirs: Array<[string, string]> = [["agents", join(home, ".agents", "skills", SKILL_NAME)]];
-	if (existsSync(join(home, ".claude"))) skillDirs.push(["claude", join(home, ".claude", "skills", SKILL_NAME)]);
+	const skill = server.skill;
+	const skillDirs: Array<[string, string]> = skill ? [["agents", join(home, ".agents", "skills", skill.name)]] : [];
+	if (skill && existsSync(join(home, ".claude")))
+		skillDirs.push(["claude", join(home, ".claude", "skills", skill.name)]);
 	for (const [harness, dir] of skillDirs) {
 		const prev = before(harness, "skill");
 		const created = prev?.kind === "skill" ? prev.created : !existsSync(dir);
 		mkdirSync(dir, { recursive: true });
 		const file = join(dir, "SKILL.md");
 		if (existsSync(file) && !prev) backup(file);
-		writeFileSync(file, SKILL_MD);
+		writeFileSync(file, skill?.md ?? "");
 		steps.push({ harness, kind: "skill", dir, created });
 		out(`skill: wrote ${tilde(home, file)}`);
 	}
@@ -224,7 +245,7 @@ export function install(opts: InstallOptions): Manifest {
 	const manifest: Manifest = { backend, command, steps };
 	mkdirSync(dirname(mpath), { recursive: true, mode: 0o700 });
 	writeFileSync(mpath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
-	out(`recorded in ${tilde(home, mpath)}; \`agent-link uninstall\` reverts it`);
+	out(`recorded in ${tilde(home, mpath)}; uninstall reverts it`);
 	return manifest;
 }
 
@@ -232,10 +253,11 @@ function opencodeEntry(command: McpCommand) {
 	return { type: "local", command: [command.command, ...command.args], enabled: true };
 }
 
-/** The TOML text without the agent-link block (and the blank lines install put before it). */
-export function removeBlock(text: string): string {
-	const start = text.indexOf(BEGIN);
+/** The TOML text without a server's block (and the blank lines install put before it). */
+export function removeBlock(text: string, name: string = SERVER_NAME): string {
+	const start = text.indexOf(beginMark(name));
 	if (start < 0) return text;
+	const END = endMark(name);
 	const endAt = text.indexOf(END, start);
 	const stop = endAt < 0 ? text.length : endAt + END.length;
 	const head = text.slice(0, start).replace(/\n+$/, "");
@@ -244,18 +266,19 @@ export function removeBlock(text: string): string {
 }
 
 /** Reverts what the last install recorded, newest step first. */
-export function uninstall(opts: Pick<InstallOptions, "home" | "env" | "out">): boolean {
+export function uninstall(opts: Pick<InstallOptions, "home" | "env" | "out" | "server">): boolean {
 	const { home, env } = opts;
 	const out = opts.out ?? ((l: string) => process.stdout.write(`${l}\n`));
-	const mpath = manifestPath(home, env);
+	const server = opts.server ?? agentLinkServer(home, env);
+	const mpath = server.manifest;
 	const manifest = readManifest(mpath);
 	if (!manifest) {
-		out(`agent-link uninstall: nothing to do (no ${tilde(home, mpath)})`);
+		out(`uninstall ${server.name}: nothing to do (no ${tilde(home, mpath)})`);
 		return false;
 	}
 	for (const step of [...manifest.steps].reverse()) {
 		try {
-			undo(step, home, env, out);
+			undo(step, home, env, out, server.name);
 		} catch (e) {
 			out(`${step.harness}: could not revert (${e instanceof Error ? e.message : String(e)})`);
 		}
@@ -266,7 +289,7 @@ export function uninstall(opts: Pick<InstallOptions, "home" | "env" | "out">): b
 	return true;
 }
 
-function undo(step: Step, home: string, env: NodeJS.ProcessEnv, out: (l: string) => void): void {
+function undo(step: Step, home: string, env: NodeJS.ProcessEnv, out: (l: string) => void, SERVER_NAME: string): void {
 	switch (step.kind) {
 		case "cli": {
 			const [bin, ...args] = step.undo;
@@ -280,7 +303,7 @@ function undo(step: Step, home: string, env: NodeJS.ProcessEnv, out: (l: string)
 		}
 		case "toml-block": {
 			if (!existsSync(step.file)) return;
-			const left = removeBlock(readFileSync(step.file, "utf8"));
+			const left = removeBlock(readFileSync(step.file, "utf8"), SERVER_NAME);
 			if (step.created && !left.trim()) rmSync(step.file);
 			else writeFileSync(step.file, left);
 			out(

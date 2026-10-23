@@ -57,7 +57,7 @@ test("install registers agent-link with all four harnesses and writes the skill;
 		]);
 		assert.equal(
 			h.read(".codex/config.toml"),
-			`${codexBefore}\n# agent-link: begin (written by \`agent-link install\`; \`agent-link uninstall\` removes it)\n[mcp_servers.agent-link]\ncommand = "${node}"\nargs = ["${mcp}"]\nenv_vars = ["AGENT_LINK_AGENT","AGENT_LINK_HUB","AGENT_LINK_TOKEN","AGENT_LINK_DEPTH","CMUX_WORKSPACE_ID","CMUX_SURFACE_ID","TMUX","TMUX_PANE"]\ndefault_tools_approval_mode = "approve"\n# agent-link: end\n`,
+			`${codexBefore}\n# agent-link: begin (written by an installer; its uninstall removes it)\n[mcp_servers.agent-link]\ncommand = "${node}"\nargs = ["${mcp}"]\nenv_vars = ["AGENT_LINK_AGENT","AGENT_LINK_HUB","AGENT_LINK_TOKEN","AGENT_LINK_DEPTH","CMUX_WORKSPACE_ID","CMUX_SURFACE_ID","TMUX","TMUX_PANE"]\ndefault_tools_approval_mode = "approve"\n# agent-link: end\n`,
 		);
 		const oc = JSON.parse(h.read(".config/opencode/opencode.json"));
 		assert.deepEqual(oc.mcp["agent-link"], { type: "local", command: [node, mcp], enabled: true });
@@ -146,7 +146,7 @@ test("an opencode config with comments, or a Codex entry of the user's own, is l
 
 test("removeBlock keeps what is around the block", () => {
 	const b =
-		"# agent-link: begin (written by `agent-link install`; `agent-link uninstall` removes it)\n[mcp_servers.agent-link]\n# agent-link: end";
+		"# agent-link: begin (written by an installer; its uninstall removes it)\n[mcp_servers.agent-link]\n# agent-link: end";
 	assert.equal(removeBlock(`a = 1\n\n${b}\n`), "a = 1\n");
 	assert.equal(removeBlock(`${b}\n`), "");
 	assert.equal(removeBlock(`a = 1\n\n${b}\n[x]\ny = 2\n`), "a = 1\n[x]\ny = 2\n");
