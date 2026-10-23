@@ -7,7 +7,11 @@ on:
 
 jobs:
   check:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5.0.0
       - uses: actions/setup-node@v5.0.0
@@ -16,3 +20,34 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm test
+
+  # The path Windows users take inside WSL2: a fresh Ubuntu user installs system packages, Faro and the harnesses.
+  install-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5.0.0
+      - name: Remove the runner's Node.js, as on a fresh Ubuntu
+        run: sudo rm -f "$(command -v node)" "$(command -v npm)" "$(command -v npx)"
+      - name: install.sh --deps --with-harnesses in a fresh HOME
+        run: |
+          export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME"
+          bash install.sh --backend tmux --deps --with-harnesses
+          export PATH="$HOME/.local/bin:$PATH"
+          node --version
+          tmux -V
+          for bin in faro agent-link claude codex opencode; do command -v "$bin"; done
+          grep -q agent-link "$HOME/.codex/config.toml"
+          grep -q agent-link "$HOME/.config/opencode/opencode.json"
+          test -f "$HOME/.agent-link/profiles/faro.json"
+
+  install-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5.0.0
+      - name: install.ps1 parses in Windows PowerShell and PowerShell 7
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { $_.ToString() }; exit 1 }
+          powershell.exe -NoProfile -Command "`$e = `$null; [System.Management.Automation.Language.Parser]::ParseFile('$PWD\install.ps1', [ref]`$null, [ref]`$e) | Out-Null; if (`$e) { `$e; exit 1 }"

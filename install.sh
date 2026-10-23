@@ -4,22 +4,33 @@
 #   curl -fsSL https://raw.githubusercontent.com/Jero110/faro-agent/main/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/Jero110/faro-agent/main/install.sh | bash -s -- --backend tmux
 #
+# Options: --backend cmux|tmux skips the question. --deps first installs git, curl, tmux and Node.js 24 with apt
+# (Ubuntu, Debian, WSL). --with-harnesses also installs Claude Code, Codex and opencode with npm into ~/.local.
+# On Windows, use install.ps1: it sets up WSL2 and runs this script inside it.
+#
 # It puts the code in ~/.faro/src (or uses the checkout it runs from), installs its npm dependencies, links
 # `faro` and `agent-link` into ~/.local/bin, asks whether you work in cmux or tmux, and registers the MCP
 # servers for that choice with every harness it finds (Claude Code, Codex, opencode, pi, Faro).
-# Environment: FARO_DIR (code), FARO_BIN_DIR (links), FARO_REPO (git URL), FARO_REF (branch or tag).
+# Environment: FARO_DIR (code), FARO_BIN_DIR (links), FARO_REPO (git URL), FARO_REF (branch or tag),
+# FARO_HARNESS_PREFIX (npm prefix for --with-harnesses, default ~/.local).
 set -euo pipefail
 
 REPO="${FARO_REPO:-https://github.com/Jero110/faro-agent.git}"
 REF="${FARO_REF:-main}"
 BIN_DIR="${FARO_BIN_DIR:-$HOME/.local/bin}"
+ORIG_PATH="$PATH"
 BACKEND=""
+DEPS=no
+HARNESSES=no
+HARNESS_PREFIX="${FARO_HARNESS_PREFIX:-$HOME/.local}"
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--backend) BACKEND="${2:-}"; shift 2 ;;
 	--backend=*) BACKEND="${1#*=}"; shift ;;
-	-h | --help) sed -n '2,12p' "$0" 2>/dev/null || true; exit 0 ;;
+	--deps) DEPS=yes; shift ;;
+	--with-harnesses) HARNESSES=yes; shift ;;
+	-h | --help) sed -n '2,17p' "$0" 2>/dev/null || true; exit 0 ;;
 	*) echo "faro install: unknown option $1" >&2; exit 2 ;;
 	esac
 done
@@ -27,11 +38,33 @@ done
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 fail() { printf 'faro install: %s\n' "$*" >&2; exit 1; }
 
+node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
+
+# 0. System packages, with --deps (apt only).
+if [ "$DEPS" = yes ]; then
+	[ "$(uname -s)" = Linux ] && command -v apt-get >/dev/null ||
+		fail "--deps installs packages with apt (Ubuntu, Debian, WSL). On macOS: brew install git node tmux"
+	if [ "$(id -u)" -eq 0 ]; then root() { "$@"; }; else root() { sudo "$@"; }; fi
+	say "Installing git, curl and tmux (apt may ask for your password)"
+	root apt-get update -qq
+	root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl tmux ca-certificates >/dev/null
+	if ! command -v node >/dev/null || [ "$(node_major)" -lt 24 ]; then
+		say "Installing Node.js 24 from NodeSource"
+		curl -fsSL https://deb.nodesource.com/setup_24.x -o /tmp/nodesource_setup.sh
+		root bash /tmp/nodesource_setup.sh >/dev/null
+		root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs >/dev/null
+		rm -f /tmp/nodesource_setup.sh
+		hash -r
+		[ "$(node_major)" -ge 24 ] ||
+			fail "Node.js 24 is installed in /usr/bin, but an older node comes first on PATH: $(command -v node). Remove it or put /usr/bin first."
+	fi
+fi
+
 # 1. Requirements.
 command -v git >/dev/null || fail "git is required"
 command -v node >/dev/null || fail "Node.js 24 or newer is required (https://nodejs.org)"
 command -v npm >/dev/null || fail "npm is required"
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+NODE_MAJOR="$(node_major)"
 [ "$NODE_MAJOR" -ge 24 ] || fail "Node.js 24 or newer is required (found $(node -v))"
 
 # 2. The code: the checkout this script lives in, else a clone in ~/.faro/src.
@@ -87,7 +120,10 @@ if [ -z "$BACKEND" ]; then
 fi
 case "$BACKEND" in cmux | tmux) ;; *) fail "--backend must be cmux or tmux" ;; esac
 [ "$BACKEND" = cmux ] && [ "$HAS_CMUX" = no ] && echo "note: cmux was not found; install it from https://cmux.com before you start Faro"
-[ "$BACKEND" = tmux ] && [ "$HAS_TMUX" = no ] && echo "note: tmux was not found; install it (e.g. brew install tmux) before you start Faro"
+if [ "$BACKEND" = tmux ] && [ "$HAS_TMUX" = no ]; then
+	if [ "$(uname -s)" = Darwin ]; then HOW="brew install tmux"; else HOW="sudo apt install tmux, or run this script with --deps"; fi
+	echo "note: tmux was not found; install it ($HOW) before you start Faro"
+fi
 
 # 5. Commands on PATH.
 mkdir -p "$BIN_DIR"
@@ -100,6 +136,14 @@ EOF
 }
 link faro packages/faro/src/cli.ts
 link agent-link packages/agent-link/src/cli.ts
+export PATH="$BIN_DIR:$HARNESS_PREFIX/bin:$PATH"
+
+# 5b. The harnesses, with --with-harnesses, before setup so it registers the MCP servers with them.
+if [ "$HARNESSES" = yes ]; then
+	say "Installing Claude Code, Codex and opencode into $HARNESS_PREFIX"
+	npm install -g --prefix "$HARNESS_PREFIX" --no-audit --no-fund --no-update-notifier --loglevel=error \
+		@anthropic-ai/claude-code @openai/codex opencode-ai
+fi
 
 # 6. MCP servers, Faro's settings and its agent-link profile.
 say "Setting up Faro for $BACKEND"
@@ -107,9 +151,15 @@ node "$DIR/packages/faro/src/cli.ts" setup --backend "$BACKEND"
 
 echo
 say "Faro is installed."
-case ":$PATH:" in
+case ":$ORIG_PATH:" in
 *":$BIN_DIR:"*) ;;
-*) echo "Add $BIN_DIR to your PATH, e.g.: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc" ;;
+*)
+	RC="$HOME/.zshrc"
+	[ "${SHELL##*/}" = bash ] && RC="$HOME/.bashrc"
+	ADD="$BIN_DIR"
+	[ "$HARNESSES" = yes ] && [ "$HARNESS_PREFIX/bin" != "$BIN_DIR" ] && ADD="$BIN_DIR:$HARNESS_PREFIX/bin"
+	echo "Add $ADD to your PATH, e.g.: echo 'export PATH=\"$ADD:\$PATH\"' >> $RC"
+	;;
 esac
 if [ "$BACKEND" = cmux ]; then
 	echo "Open a terminal in cmux, cd into a project and run: faro"

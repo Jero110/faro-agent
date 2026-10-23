@@ -51,9 +51,38 @@ The installer asks one question, **cmux or tmux**, and sets up the rest:
 - With cmux, also the cmux MCP server. With tmux, only agent-link.
 - Faro's own pi config in `~/.faro/agent`, reusing your pi login. Default model: Claude Sonnet.
 
-Skip the question with `bash -s -- --backend cmux` (or `tmux`). Requirements: Node.js 24+, git, and cmux
-([cmux.com](https://cmux.com), recommended) or tmux. Install the harnesses you want Faro to use: `claude`, `codex`,
-`opencode`.
+Skip the question with `bash -s -- --backend cmux` (or `tmux`). Requirements: macOS or Linux, Node.js 24+, git, and
+cmux ([cmux.com](https://cmux.com), macOS, recommended) or tmux. Install the harnesses you want Faro to use: `claude`,
+`codex`, `opencode`.
+
+Two more options do that for you:
+
+- `--deps` installs git, curl, tmux and Node.js 24 with apt (Ubuntu, Debian, WSL).
+- `--with-harnesses` installs Claude Code, Codex and opencode into `~/.local`, before the MCP servers are registered.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jero110/faro-agent/main/install.sh | bash -s -- --backend tmux --deps --with-harnesses
+```
+
+### Windows
+
+Faro needs a Unix shell, Unix sockets and tmux, so on Windows it runs inside WSL2 (Ubuntu). In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Jero110/faro-agent/main/install.ps1 | iex
+```
+
+The first time, it installs WSL2 with Ubuntu (Windows asks for administrator rights and a restart); open Ubuntu once
+to create your user, then run the same command again. The second run installs git, tmux, Node.js 24 and Faro inside
+Ubuntu, with the tmux backend. To install Claude Code, Codex and opencode there as well:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Jero110/faro-agent/main/install.ps1))) -WithHarnesses
+```
+
+Then open Ubuntu, run `tmux`, `cd` into a project under your Linux home (`~/`, much faster than `/mnt/c`) and run
+`faro`. CI runs this Linux install on a fresh Ubuntu and checks that the PowerShell script parses; the WSL steps
+themselves have not run on a Windows machine yet.
 
 ## Use
 
@@ -258,7 +287,11 @@ header) without a fork. Faro pins pi and keeps its own config in `~/.faro/agent`
 
 **Do I need cmux?**
 You need cmux or tmux, because every agent gets its own pane. cmux adds the cmux MCP (sessions, layout, browser); with
-tmux you get agent-link alone.
+tmux you get agent-link alone. cmux is macOS only; on Linux and on Windows (through WSL2) use tmux.
+
+**Does it run on Windows?**
+Through WSL2, with tmux: `install.ps1` sets it up (see [Windows](#windows)). Natively, no: the hub and the adapters use
+Unix sockets, and the guard reads shell commands, not PowerShell.
 
 **What does it cost?**
 What each harness spends with its provider. Faro calls no model on its own; `/workflow review` shows the tokens per
