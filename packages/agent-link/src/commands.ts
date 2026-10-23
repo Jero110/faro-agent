@@ -5,7 +5,7 @@
 // user's shell PATH. Solution: every registration uses this node and the resolved file, so it works wherever
 // the repository is checked out, with no global install.
 import { fileURLToPath } from "node:url";
-import type { BackendName } from "agent-link-core";
+import { type BackendName, stableNode } from "agent-link-core";
 
 export interface McpCommand {
 	command: string;
@@ -15,7 +15,7 @@ export interface McpCommand {
 export function mcpCommand(backend: BackendName): McpCommand {
 	const entry =
 		backend === "cmux" ? import.meta.resolve("agent-link-cmux/mcp") : import.meta.resolve("agent-link-tmux/mcp");
-	return { command: process.execPath, args: [fileURLToPath(entry)] };
+	return { command: stableNode(), args: [fileURLToPath(entry)] };
 }
 
 export function mcpCommands(): Record<BackendName, McpCommand> {

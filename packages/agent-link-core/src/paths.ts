@@ -1,4 +1,5 @@
 // Where agent-link keeps its files: one home folder per machine (or per test), private to the user.
+import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -36,4 +37,22 @@ export function hubPaths(home: string = agentLinkHome()): HubPaths {
 		events: join(home, "events.sqlite"),
 		sessions: join(home, "sessions"),
 	};
+}
+
+/**
+ * The node to write into configs that outlive this process (MCP registrations, profiles).
+ * Problem: process.execPath is the resolved binary. Example: Homebrew's /opt/homebrew/Cellar/node/26.11.1/bin/node,
+ * gone after the next `brew upgrade node`, which breaks every registered MCP server. Solution: the first `node` on
+ * PATH (Homebrew's /opt/homebrew/bin/node is a stable link), else this process's node.
+ */
+export function stableNode(env: NodeJS.ProcessEnv = process.env): string {
+	if (env.FARO_NODE) return env.FARO_NODE;
+	for (const dir of (env.PATH ?? "").split(":").filter(Boolean)) {
+		const file = join(dir, "node");
+		try {
+			accessSync(file, constants.X_OK);
+			return file;
+		} catch {}
+	}
+	return process.execPath;
 }

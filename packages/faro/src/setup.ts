@@ -7,7 +7,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSyn
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentLinkServer, install, mcpCommand, type ServerSpec, uninstall } from "agent-link";
-import { agentLinkHome, type BackendName, hubPaths, PLACE_ENV } from "agent-link-core";
+import { agentLinkHome, type BackendName, hubPaths, PLACE_ENV, stableNode } from "agent-link-core";
 import { FARO_CLI, type FaroPaths, SKILL_GROUP_DIRS, SKILLS_DIR } from "./paths.ts";
 
 /** The mark Faro puts in settings.json, so it never rewrites settings it did not write. */
@@ -120,7 +120,7 @@ export function writeFaroProfile(env: NodeJS.ProcessEnv): string {
 		label: "Faro",
 		defaultModel: null,
 		dialogs: [],
-		command: [process.execPath, FARO_CLI],
+		command: [stableNode(env), FARO_CLI],
 	};
 	const text = `${JSON.stringify(profile, null, "\t")}\n`;
 	if (!existsSync(file) || readFileSync(file, "utf8") !== text) writeFileSync(file, text);
@@ -138,7 +138,7 @@ export function readConfig(paths: FaroPaths): FaroConfig | undefined {
 
 /** How harnesses start the cmux MCP server: this node and the package's CLI. */
 export function cmuxMcpCommand(): { command: string; args: string[] } {
-	return { command: process.execPath, args: [fileURLToPath(import.meta.resolve("cmux-mcp/cli"))] };
+	return { command: stableNode(), args: [fileURLToPath(import.meta.resolve("cmux-mcp/cli"))] };
 }
 
 export function cmuxServer(paths: FaroPaths): ServerSpec {

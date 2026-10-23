@@ -58,7 +58,7 @@ fi
 
 # 3. Dependencies, exactly as locked, without install scripts.
 say "Installing dependencies"
-(cd "$DIR" && npm ci --ignore-scripts --omit=dev --no-audit --no-fund --loglevel=error)
+(cd "$DIR" && npm ci --ignore-scripts --omit=dev --no-audit --no-fund --no-update-notifier --loglevel=error)
 
 # 4. cmux or tmux.
 has() { command -v "$1" >/dev/null 2>&1; }

@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { stableNode } from "agent-link-core";
 import { defaultBackend, mcpCommand } from "../src/commands.ts";
 import { install, manifestPath, removeBlock, uninstall } from "../src/install.ts";
 import { SKILL_MD } from "../src/skill.ts";
@@ -159,7 +160,7 @@ test("default backend: cmux inside cmux, else tmux; the MCP command is node and 
 	assert.equal(defaultBackend({ TMUX: "/tmp/t,1,0" }), "tmux");
 	assert.equal(defaultBackend({}), "tmux");
 	const cmd = mcpCommand("tmux");
-	assert.equal(cmd.command, process.execPath);
+	assert.equal(cmd.command, stableNode());
 	assert.match(cmd.args[0] ?? "", /packages\/agent-link-tmux\/src\/mcp\.ts$/);
 	assert.ok(existsSync(cmd.args[0] ?? ""));
 });

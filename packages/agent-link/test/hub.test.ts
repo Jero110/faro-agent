@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createHubClient, DEFAULT_HUB_ENTRY, startHub } from "agent-link-core";
+import { createHubClient, DEFAULT_HUB_ENTRY, stableNode, startHub } from "agent-link-core";
 import { tempHome } from "../../agent-link-core/test/fakes/hub.ts";
 import { ADAPTERS } from "../src/adapters.ts";
 import { hubOptions } from "../src/hub.ts";
@@ -29,7 +29,7 @@ test("the composed hub: every adapter on main, both backends, node MCP commands,
 		const opts = hubOptions(home);
 		assert.deepEqual(Object.keys(ADAPTERS), ["claude", "codex", "opencode", "paste", "pi"]);
 		assert.deepEqual(Object.keys(opts.backends).sort(), ["cmux", "tmux"]);
-		assert.equal(opts.mcp?.cmux?.command, process.execPath);
+		assert.equal(opts.mcp?.cmux?.command, stableNode());
 		assert.match(opts.mcp?.cmux?.args[0] ?? "", /packages\/agent-link-cmux\/src\/mcp\.ts$/);
 		assert.deepEqual([...(opts.profiles?.keys() ?? [])].sort(), ["aider", "claude", "codex", "opencode", "pi"]);
 
