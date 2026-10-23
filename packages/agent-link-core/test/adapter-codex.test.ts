@@ -51,7 +51,9 @@ async function harness(t: TestContext, opts: { depth?: number; installed?: strin
 		timeoutMs: 3000,
 	});
 	const updates: SessionUpdate[] = [];
-	adapter.onUpdate((u) => updates.push(u));
+	// The session update (thread id for the journal) is checked on its own; the rest of the stream is what the tests look at.
+	const sessions: SessionUpdate[] = [];
+	adapter.onUpdate((u) => (u.kind === "session" ? sessions : updates).push(u));
 	const cmd = await adapter.launch(spec());
 	if (!proc) throw new Error("spawnServer was not called");
 	const p = proc;

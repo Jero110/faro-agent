@@ -64,7 +64,9 @@ export type SessionUpdate =
 	 */
 	| { kind: "turn_end"; stopReason: StopReason; text: string }
 	/** The harness process is gone (pane closed, crash). */
-	| { kind: "exited"; code?: number; detail?: string };
+	| { kind: "exited"; code?: number; detail?: string }
+	/** The harness's own session, once the adapter knows it; the hub writes it to the session journal. */
+	| { kind: "session"; sessionId?: string; transcript?: string };
 
 /** What a pane runs. Paths are absolute. */
 export interface PaneCommand {

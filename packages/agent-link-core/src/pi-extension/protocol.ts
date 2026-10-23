@@ -16,7 +16,8 @@ export type FromExtension =
 	| { type: "state"; state: "idle" | "busy" | "asking"; detail?: string }
 	| { type: "tool_call"; title: string }
 	| { type: "agent_message"; text: string }
-	| { type: "turn_end"; id: string | null; stopReason: StopReason; text: string };
+	| { type: "turn_end"; id: string | null; stopReason: StopReason; text: string }
+	| { type: "session"; sessionId: string; file?: string };
 
 export function writeLine(socket: Socket, message: ToExtension | FromExtension): void {
 	if (!socket.destroyed) socket.write(`${JSON.stringify(message)}\n`);
@@ -64,6 +65,11 @@ export function parseFromExtension(v: Record<string, unknown>): FromExtension | 
 			return typeof v.title === "string" ? { type: "tool_call", title: v.title } : undefined;
 		case "agent_message":
 			return typeof v.text === "string" ? { type: "agent_message", text: v.text } : undefined;
+		case "session":
+			if (typeof v.sessionId !== "string") return undefined;
+			return typeof v.file === "string"
+				? { type: "session", sessionId: v.sessionId, file: v.file }
+				: { type: "session", sessionId: v.sessionId };
 		case "turn_end": {
 			const id = typeof v.id === "string" ? v.id : null;
 			const stopReason = isStopReason(v.stopReason) ? v.stopReason : "error";

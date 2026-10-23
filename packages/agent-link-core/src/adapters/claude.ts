@@ -447,6 +447,7 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 			token = (JSON.parse(readFileSync(join(sessionsDir, keyFile), "utf8")) as { peerToken: string }).peerToken;
 			transcript = join(claudeHome, "projects", projectSlug(info.cwd), `${sessionId}.jsonl`);
 			status = "idle";
+			emit({ kind: "session", sessionId, transcript });
 			readTranscript();
 			timer = setInterval(poll, pollMs);
 			deps.log("connected", { pid, sessionId });

@@ -363,6 +363,7 @@ export function createOpencodeAdapter(deps: AdapterDeps, opts: OpencodeOptions =
 				}
 			}
 			session = ((await api("/session", { title })) as { id: string }).id;
+			emit({ kind: "session", sessionId: session });
 			await watch();
 			if (!pane) void selectInTui();
 			else if (!(await selectInTui()) && !gone) {

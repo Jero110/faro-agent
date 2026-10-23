@@ -31,6 +31,8 @@ export interface Agent {
 	/** Process to watch, for roots: when it is gone, the root and its tree close. */
 	pid?: number;
 	runDir?: string;
+	/** The agent's id in the session journal (src/journal.ts). */
+	journalId?: string;
 	/** Set once the agent starts closing; the teardown runs once. */
 	closing?: Promise<void>;
 	/** Timer that retries delivery while the adapter is not idle. */

@@ -90,11 +90,25 @@ export function createAgentLinkExtension(env: NodeJS.ProcessEnv = process.env) {
 			send(detail ? { type: "state", state, detail } : { type: "state", state });
 		};
 
+		/** The pi session this run writes, so the hub can journal where its transcript is. */
+		const sendSession = (socket: Socket) => {
+			const sm = ctx?.sessionManager;
+			if (!sm) return;
+			const file = sm.getSessionFile();
+			writeLine(
+				socket,
+				file
+					? { type: "session", sessionId: sm.getSessionId(), file }
+					: { type: "session", sessionId: sm.getSessionId() },
+			);
+		};
+
 		const onClient = (socket: Socket) => {
 			clients.add(socket);
 			socket.on("close", () => clients.delete(socket));
 			socket.on("error", () => clients.delete(socket));
 			sendState();
+			sendSession(socket);
 			readLines(socket, (raw) => {
 				const message = parseToExtension(raw);
 				if (message?.type === "prompt") {

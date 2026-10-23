@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { connect } from "node:net";
+import { Journal } from "../journal.ts";
 import { EventLog } from "../log.ts";
 import { hubPaths } from "../paths.ts";
 import { loadProfiles } from "../profiles.ts";
@@ -62,6 +63,7 @@ export async function startHub(opts: StartHubOptions): Promise<RunningHub> {
 		token,
 		runRoot: paths.run,
 		log,
+		journal: new Journal(paths.sessions),
 		adapters: opts.adapters,
 		backends: opts.backends,
 		profiles: opts.profiles ?? loadProfiles(),

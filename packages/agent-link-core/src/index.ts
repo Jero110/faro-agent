@@ -13,6 +13,7 @@ export * from "./hub/server.ts";
 export * from "./hub/spawn.ts";
 export * from "./hub/startup.ts";
 export * from "./hub/state.ts";
+export * from "./journal.ts";
 export * from "./launch-script.ts";
 export * from "./log.ts";
 export * from "./mcp/server.ts";

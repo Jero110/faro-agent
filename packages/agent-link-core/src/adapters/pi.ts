@@ -66,7 +66,13 @@ export function createPiAdapter(deps: AdapterDeps, options: PiAdapterOptions = {
 			socketPath = join(spec.runDir, "pi.sock");
 			const model = spec.model ?? spec.profile.defaultModel;
 			return {
-				argv: [options.command ?? "pi", "-e", PI_EXTENSION_PATH, ...(model ? ["--model", model] : [])],
+				// A profile may name another pi-based harness (Faro is pi with its own config and extensions).
+				argv: [
+					...(spec.profile.command ?? [options.command ?? "pi"]),
+					"-e",
+					PI_EXTENSION_PATH,
+					...(model ? ["--model", model] : []),
+				],
 				env: { ...spec.env, [PI_SOCKET_ENV]: socketPath, [PI_MCP_ENV]: JSON.stringify(spec.mcp) },
 				cwd: spec.cwd,
 			};
@@ -100,6 +106,8 @@ export function createPiAdapter(deps: AdapterDeps, options: PiAdapterOptions = {
 						emit({ kind: "agent_message", text: m.text });
 					} else if (m.type === "tool_call") {
 						emit({ kind: "tool_call", title: m.title });
+					} else if (m.type === "session") {
+						emit({ kind: "session", sessionId: m.sessionId, transcript: m.file });
 					} else if (pending && m.id === pending.id) {
 						deps.log("turn_end", { id: m.id, stopReason: m.stopReason });
 						settle({ stopReason: m.stopReason, text: m.text });

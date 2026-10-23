@@ -14,6 +14,7 @@ import { rmSync } from "node:fs";
 import { buildBrief } from "../brief.ts";
 import { keysForChoice } from "../dialogs.ts";
 import { checkCommand } from "../guard.ts";
+import { type Journal, journalId, type SessionPatch } from "../journal.ts";
 import type { EventLog } from "../log.ts";
 import type {
 	AdapterFactory,
@@ -61,6 +62,8 @@ export interface HubOptions {
 	/** Parent folder of every agent's run folder (<home>/run). */
 	runRoot: string;
 	log: EventLog;
+	/** Where every agent's record is kept on disk; none in tests that do not need it. */
+	journal?: Journal;
 	adapters: Record<string, AdapterFactory>;
 	backends: Partial<Record<BackendName, PaneBackend>>;
 	profiles: ReadonlyMap<string, Profile>;
@@ -162,6 +165,7 @@ export class Hub {
 		const identity = this.identity(name, 0);
 		this.registry.add(agent);
 		this.log.agent(record);
+		this.journalCreate(agent, { place: req.place, pid: req.pid, backend: req.backend });
 		if (!factory || !profile) {
 			agent.ready = true;
 			this.transition(agent, "connected");
@@ -228,6 +232,7 @@ export class Hub {
 		const agent = this.newAgent(record, profile);
 		this.registry.add(agent);
 		this.log.agent(record);
+		this.journalCreate(agent, { task: req.task, backend: req.backend }, caller);
 		const adapter = this.createAdapter(agent, factory);
 		// The brief is the first message; it waits until connect() resolves.
 		this.enqueue(agent, {
@@ -254,6 +259,7 @@ export class Hub {
 				place: placeOf(caller.record, req, caller.place),
 			});
 			this.log.agentPane(name, req.backend, record.pane);
+			this.journalUpdate(agent, { pane: record.pane, backend: req.backend });
 		} catch (e) {
 			this.transition(agent, "error");
 			await this.closeAgent(agent);
@@ -323,6 +329,57 @@ export class Hub {
 		agent.adapter = adapter;
 		adapter.onUpdate((u) => this.update(agent, u));
 		return adapter;
+	}
+
+	private journalCreate(
+		agent: Agent,
+		extra: { task?: string; place?: PlaceHint; pid?: number; backend?: BackendName },
+		parent?: Agent,
+	): void {
+		const { journal } = this.opts;
+		if (!journal) return;
+		const r = agent.record;
+		const at = new Date(r.startedAt);
+		const id = journalId(r.name, at);
+		agent.journalId = id;
+		const parentId = parent?.journalId ?? null;
+		const root = parent && parentId ? (this.rootJournalId(parent) ?? parentId) : id;
+		try {
+			journal.create({
+				id,
+				name: r.name,
+				parent: parentId,
+				parentName: r.parent,
+				root,
+				harness: r.harness,
+				model: r.model,
+				cwd: r.cwd,
+				task: extra.task,
+				state: r.state,
+				depth: r.depth,
+				backend: extra.backend,
+				place: extra.place,
+				pid: extra.pid,
+				startedAt: at.toISOString(),
+			});
+		} catch (e) {
+			this.log.event(r.name, "journal-failed", { error: errorText(e) });
+		}
+	}
+
+	private rootJournalId(agent: Agent): string | undefined {
+		let a: Agent | undefined = agent;
+		while (a?.record.parent) a = this.registry.get(a.record.parent);
+		return a?.journalId;
+	}
+
+	private journalUpdate(agent: Agent, patch: SessionPatch): void {
+		if (!this.opts.journal || !agent.journalId) return;
+		try {
+			this.opts.journal.update(agent.journalId, patch);
+		} catch (e) {
+			this.log.event(agent.record.name, "journal-failed", { error: errorText(e) });
+		}
 	}
 
 	private identity(agent: string, depth: number): Identity {
@@ -423,6 +480,11 @@ export class Hub {
 			this.log.event(name, "tool-call", { title: u.title, status: u.status });
 			return;
 		}
+		if (u.kind === "session") {
+			this.log.event(name, "session", { sessionId: u.sessionId, transcript: u.transcript });
+			this.journalUpdate(agent, { sessionId: u.sessionId, transcript: u.transcript });
+			return;
+		}
 		this.log.event(name, `update-${u.kind}`, u.kind === "state" ? { state: u.state, detail: u.detail } : {});
 		if (agent.closing) return;
 		if (u.kind === "exited") {
@@ -469,6 +531,7 @@ export class Hub {
 		if (to !== from) {
 			agent.record.state = to;
 			this.log.agentState(agent.record.name, to);
+			this.journalUpdate(agent, to === "exited" ? { state: to, endedAt: new Date().toISOString() } : { state: to });
 		}
 		return true;
 	}

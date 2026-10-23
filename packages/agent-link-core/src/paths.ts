@@ -21,6 +21,8 @@ export interface HubPaths {
 	/** One private folder per agent: run/<name> (0700). */
 	run: string;
 	events: string;
+	/** The session journal: one JSON file per agent, kept after the hub stops. */
+	sessions: string;
 }
 
 export function hubPaths(home: string = agentLinkHome()): HubPaths {
@@ -32,5 +34,6 @@ export function hubPaths(home: string = agentLinkHome()): HubPaths {
 		daemonLog: join(home, "hub.log"),
 		run: join(home, "run"),
 		events: join(home, "events.sqlite"),
+		sessions: join(home, "sessions"),
 	};
 }

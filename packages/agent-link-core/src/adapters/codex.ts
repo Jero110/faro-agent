@@ -284,6 +284,7 @@ export function createCodexAdapter(deps: AdapterDeps, options: CodexAdapterOptio
 		if (threadId) return;
 		threadId = id;
 		deps.log("codex_thread", { threadId: id });
+		emit({ kind: "session", sessionId: id });
 		wake();
 	};
 
