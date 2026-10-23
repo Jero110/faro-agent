@@ -1,6 +1,8 @@
 // A workflow run, rebuilt from disk: the agent-link journal says who launched whom with which task, and each
 // agent's transcript says what it did (messages, tokens, time per answer, skills). Nothing here needs the
 // hub or the agents to still run.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { SessionRecord } from "agent-link-core";
 import { treeOf } from "agent-link-core";
 import {
@@ -36,6 +38,23 @@ export interface WorkflowRun {
 
 const PLAN_PATH = /(docs\/plans\/[\w./-]+?\.md)\b/;
 const TASK = /Task\s+(T\d+)\b[^:\n]*:\s*([^\n]+)/;
+const BRIEF_FILE = /([^\s'"`]*-briefs\/[^\s'"`]+\.md)/;
+
+/**
+ * The brief as the agent got it: the task text, plus the brief file it names.
+ * Problem: the executor writes long briefs to docs/plans/<slug>-briefs/<T-id>.md and sends only "Read and do the task
+ * in <that file>". Example: in a real run every worker showed no assigned skills and no task id, since the Skills and
+ * Task lines were in the file. Solution: the file named in the task is read too (relative to the agent's folder).
+ */
+export function briefOf(task: string | undefined, cwd: string): string | undefined {
+	const file = task ? BRIEF_FILE.exec(task)?.[1] : undefined;
+	if (!task || !file) return task;
+	try {
+		return `${task}\n${readFileSync(resolve(cwd, file), "utf8")}`;
+	} catch {
+		return task;
+	}
+}
 const SKILLS_LINE = /^\s*(?:Skills?|Load the skills?|Skills to load)\s*:\s*(.+)$/im;
 
 export function isExecutor(r: SessionRecord): boolean {
@@ -108,13 +127,14 @@ export function buildRun(records: readonly SessionRecord[], root: SessionRecord,
 	const roles = assignRoles(tree);
 	let plan: string | undefined;
 	const agents = tree.map((record): RunAgent => {
-		const task = record.task ? TASK.exec(record.task) : null;
+		const brief = briefOf(record.task, record.cwd);
+		const task = brief ? TASK.exec(brief) : null;
 		const agent: RunAgent = {
 			record,
 			role: roles.get(record.id) ?? "worker",
 			taskId: task?.[1],
 			taskTitle: task?.[2]?.trim(),
-			assignedSkills: assigned(record.task),
+			assignedSkills: assigned(brief),
 		};
 		if (agent.role === "executor") plan ??= record.task ? PLAN_PATH.exec(record.task)?.[1] : undefined;
 		try {

@@ -1,6 +1,6 @@
 // The /workflow review report: what ran, with which skills, how many tokens and how much time, by role, by
 // harness, by agent and by message. Plain Markdown, so it reads the same in the session and in the file.
-import { totalTokens, type Usage } from "agent-transcripts";
+import type { Usage } from "agent-transcripts";
 import type { Role, RunAgent, WorkflowRun } from "./run.ts";
 
 const ROLE_ORDER: Role[] = ["planner", "helper", "executor", "worker", "root"];
@@ -31,15 +31,26 @@ export function duration(ms: number): string {
 	return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
+/**
+ * Tokens the run processed for the first time: input, output and cache writes.
+ * Problem: the report's headline summed cache reads too. Example: a 12-minute run showed 3.37M tokens, of which
+ * 2.87M were cache reads (each answer re-reads its whole context, billed at about a tenth). Solution: the headline
+ * and the main columns count new tokens; cache reads get their own column.
+ */
+export function newTokens(u: Usage): number {
+	return u.input + u.output + u.cacheWrite;
+}
+
 const cell = (t: string) => t.replace(/\|/g, "\\|").replace(/\n/g, " ");
 const row = (cells: readonly string[]) => `| ${cells.map(cell).join(" | ")} |`;
 const usageCells = (u: Usage) => [
+	tokens(newTokens(u)),
 	tokens(u.input),
 	tokens(u.output),
-	tokens(u.cacheRead),
 	tokens(u.cacheWrite),
-	tokens(totalTokens(u)),
+	tokens(u.cacheRead),
 ];
+const USAGE_HEADERS = ["New tokens", "Input", "Output", "Cache write", "Cache read"];
 
 interface Group {
 	agents: RunAgent[];
@@ -82,24 +93,13 @@ export function renderReport(run: WorkflowRun, opts: { messages?: boolean } = {}
 		`Root ${run.root.name} (${run.root.harness}) · ${all.length} agents · started ${run.root.startedAt}${run.plan ? ` · plan ${run.plan}` : ""}`,
 	);
 	out.push(
-		`Total ${tokens(totalTokens(total))} tokens (${tokens(total.input)} input, ${tokens(total.output)} output, ${tokens(total.cacheRead)} cache read, ${tokens(total.cacheWrite)} cache write) · wall time ${duration(wall(run))}`,
+		`New tokens ${tokens(newTokens(total))} (${tokens(total.input)} input, ${tokens(total.output)} output, ${tokens(total.cacheWrite)} cache write) · cache reads ${tokens(total.cacheRead)} · wall time ${duration(wall(run))}`,
+		"",
+		"New tokens are what the run processed for the first time. Cache reads are context each answer read again from the prompt cache; providers bill them at about a tenth of an input token, so they are listed apart.",
 	);
 
 	out.push("", "## By role", "");
-	out.push(
-		row([
-			"Role",
-			"Agents",
-			"Harnesses",
-			"Input",
-			"Output",
-			"Cache read",
-			"Cache write",
-			"Total",
-			"Answers",
-			"Active time",
-		]),
-	);
+	out.push(row(["Role", "Agents", "Harnesses", ...USAGE_HEADERS, "Answers", "Active time"]));
 	out.push(row(Array(10).fill("---")));
 	const byRole = group(all, (a) => a.role);
 	for (const role of ROLE_ORDER) {
@@ -112,20 +112,7 @@ export function renderReport(run: WorkflowRun, opts: { messages?: boolean } = {}
 	}
 
 	out.push("", "## By harness", "");
-	out.push(
-		row([
-			"Harness",
-			"Agents",
-			"Models",
-			"Input",
-			"Output",
-			"Cache read",
-			"Cache write",
-			"Total",
-			"Answers",
-			"Active time",
-		]),
-	);
+	out.push(row(["Harness", "Agents", "Models", ...USAGE_HEADERS, "Answers", "Active time"]));
 	out.push(row(Array(10).fill("---")));
 	for (const [h, g] of group(all, (a) => a.record.harness)) {
 		const models = [...new Set(g.agents.map(model))].join(", ");
@@ -144,14 +131,15 @@ export function renderReport(run: WorkflowRun, opts: { messages?: boolean } = {}
 			"Skills assigned",
 			"Skills loaded",
 			"Answers",
-			"Tokens",
+			"New tokens",
+			"Cache read",
 			"Active",
 			"Slowest",
 			"Tool errors",
 			"State",
 		]),
 	);
-	out.push(row(Array(12).fill("---")));
+	out.push(row(Array(13).fill("---")));
 	for (const a of all) {
 		const s = a.summary;
 		const task = a.taskId
@@ -168,7 +156,8 @@ export function renderReport(run: WorkflowRun, opts: { messages?: boolean } = {}
 				a.assignedSkills.join(", ") || "-",
 				s?.skills.join(", ") || "-",
 				s ? String(s.assistantMessages) : "-",
-				s ? tokens(s.totalTokens) : "-",
+				s ? tokens(newTokens(s.usage)) : "-",
+				s ? tokens(s.usage.cacheRead) : "-",
 				s ? duration(s.activeMs) : "-",
 				s ? duration(s.slowestMs) : "-",
 				s ? String(s.failedToolCalls) : "-",

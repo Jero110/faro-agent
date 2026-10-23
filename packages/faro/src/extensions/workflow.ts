@@ -23,6 +23,7 @@ export function reviewInstructions(reportFile: string, plan: string | undefined)
 	return [
 		`The report above is computed from the transcripts (saved at ${reportFile}). Now:`,
 		"1. Summarize in 3-5 lines what this run did: tasks, which agent and harness did each, the skills used.",
+		"   When you give token counts, use new tokens; name cache reads separately, as context read again, never as one sum.",
 		"2. Write up to 5 recommendations to improve the workflow. Look at: skills that helped, were assigned but not loaded, or were missing;",
 		"   task split and parallelism; harness and model per task; brief quality (questions back, retries, tool errors); time and token waste",
 		"   (slow answers, large inputs, idle waits). For each: the change, the evidence (agent name and message #), and where to change it",

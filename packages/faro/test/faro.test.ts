@@ -23,7 +23,7 @@ import { EXTENSIONS, faroPaths, PI_CLI, SKILL_GROUP_DIRS, SKILLS_DIR } from "../
 import { ensureAgentDir, readConfig, setup, writeFaroProfile } from "../src/setup.ts";
 import { catalogReadme, readCatalog, skillPath } from "../src/workflow/catalog.ts";
 import { renderReport } from "../src/workflow/report.ts";
-import { buildRun, pickRoot } from "../src/workflow/run.ts";
+import { briefOf, buildRun, pickRoot } from "../src/workflow/run.ts";
 
 function tempHome(t: { after: (fn: () => void) => void }): { home: string; env: NodeJS.ProcessEnv } {
 	const home = mkdtempSync(join(tmpdir(), "faro-"));
@@ -358,6 +358,18 @@ function fakeRun(t: { after: (fn: () => void) => void }) {
 	return { records: readJournal(dir), roots };
 }
 
+test("a brief written to a file counts: its Task and Skills lines are read from it", (t) => {
+	const { home } = tempHome(t);
+	const dir = join(home, "docs", "plans", "x-briefs");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, "T2.md"), "Task T2 of docs/plans/x.md: load the CSV\nSkills: spec-driven-development\n");
+	const brief = briefOf("Read and do the task in docs/plans/x-briefs/T2.md", home) ?? "";
+	assert.match(brief, /Task T2 of docs\/plans\/x\.md: load the CSV/);
+	assert.match(brief, /Skills: spec-driven-development/);
+	assert.equal(briefOf("Task T1: inline", home), "Task T1: inline", "an inline brief is kept as it is");
+	assert.equal(briefOf("Read docs/plans/gone-briefs/T9.md", home), "Read docs/plans/gone-briefs/T9.md");
+});
+
 test("a run is rebuilt from the journal and transcripts: roles, plan, tasks, skills, tokens, time", (t) => {
 	const { records, roots } = fakeRun(t);
 	const root = pickRoot(records, { sessionId: "c-1" });
@@ -384,7 +396,8 @@ test("a run is rebuilt from the journal and transcripts: roles, plan, tasks, ski
 
 	const report = renderReport(run);
 	assert.match(report, /^# Workflow review: docs\/plans\/todo\.md/);
-	assert.match(report, /\| planner \| 1 \| faro \| 10 \| 50 \| 100 \| 0 \| 160 \| 1 \| 10s \|/);
+	assert.match(report, /\| planner \| 1 \| faro \| 60 \| 10 \| 50 \| 0 \| 100 \| 1 \| 10s \|/, "new tokens first");
+	assert.match(report, /New tokens \d+ \(.*\) · cache reads \d+/);
 	assert.match(report, /\| worker \| 2 \| claude, opencode \|/);
 	assert.match(report, /\| claude \| 1 \| claude-haiku-5-5 \|/);
 	assert.match(
