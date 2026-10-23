@@ -12,7 +12,7 @@ export interface ObjectSchema {
 	additionalProperties?: boolean;
 }
 
-export type ToolName = "spawn" | "send" | "reply" | "status" | "cancel" | "inbox";
+export type ToolName = "spawn" | "send" | "permit" | "reply" | "status" | "cancel" | "inbox";
 
 export interface ToolDef {
 	name: ToolName;
@@ -71,6 +71,23 @@ export function toolDefs(opts: { harnesses: readonly string[]; pull: boolean }):
 					message: { type: "string", description: "The message; the recipient sees it as coming from you" },
 				},
 				required: ["to", "message"],
+			},
+		},
+		{
+			name: "permit",
+			description:
+				"Answer the permission or question one of your workers waits on, at any time: agent-link tells you its options in a message that starts with [agent-link] <worker> is waiting for your answer. Pass the option number or its text; the worker goes on at once. If only the user should decide, ask the user first.",
+			inputSchema: {
+				type: "object",
+				properties: {
+					to: { type: "string", description: "Exact worker name" },
+					choice: {
+						type: "string",
+						description:
+							'Option number or text, e.g. "1" or "Allow once"; "1,3" to pick several; "1; 2" for several questions',
+					},
+				},
+				required: ["to", "choice"],
 			},
 		},
 		{
@@ -147,6 +164,12 @@ export function sendReply(res: SendResult, to: string): ToolReply {
 	);
 }
 
+export function permitReply(res: { ok: boolean; answered?: string; error?: string }, to: string): ToolReply {
+	return res.ok
+		? text(`answered ${to}: ${res.answered ?? "done"}. It goes on now; its result arrives as usual.`)
+		: text(`not answered: ${res.error ?? "unknown error"}`, true);
+}
+
 export function replyReply(res: { ok: boolean; error?: string }): ToolReply {
 	return res.ok
 		? text("result set: your parent gets it when this turn ends. Finish the turn now.")
@@ -207,10 +230,10 @@ export function instructions({ client, name, parent, pull }: InstructionsInput):
 			pull
 				? "- spawn and send return at once. Results and questions from your workers wait in the hub; read them with inbox(). They never arrive by themselves, and calling inbox or status in a loop does not make them come sooner."
 				: "- spawn and send return at once. A worker's final answer and its questions arrive later as a new message that starts with [agent-link] <name>. After spawning or sending, tell the user what is running and end your turn. Never wait, sleep or call status in a loop.",
-			'- Answer a worker\'s question with send({ to: "<worker>", message }). If only the user can answer, ask the user first.',
+			'- Answer a worker\'s question with send({ to: "<worker>", message }), and a permission or question it waits on with permit({ to: "<worker>", choice }). If only the user can answer, ask the user first.',
 		);
 	}
-	lines.push(`- Tools: spawn, send, reply, status, cancel, inbox. ${NAME_RULE}`);
+	lines.push(`- Tools: spawn, send, permit, reply, status, cancel, inbox. ${NAME_RULE}`);
 	if (/claude/i.test(client))
 		lines.push("- agent-link agents are reached only with these tools, never with SendMessage or ListAgents.");
 	return lines.join("\n");

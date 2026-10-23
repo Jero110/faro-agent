@@ -233,6 +233,7 @@ extension socket), never by typing into the screen.
 | --- | --- |
 | `spawn` | Opens a worker of a harness (claude, codex, opencode, pi, faro) with a task, a model and a folder, in the column right of the caller's pane. Returns at once. With `handoff: true` the new agent takes over: the caller's pane closes once its turn ends. |
 | `send` | Sends a message to the caller's parent or one of its workers. A parent's message reads like the user's. |
+| `permit` | Answers a permission or question a worker waits on, at any time: the parent gets its numbered options and picks one. opencode is answered through its API, Claude through a PermissionRequest hook; never by reading or typing into the pane. |
 | `reply` | Sets the result explicitly; otherwise the last answer of the turn is the result. |
 | `status` | The tree of agents and their state: starting, working, asking, done, exited. |
 | `cancel` | Stops a worker and closes its pane. |

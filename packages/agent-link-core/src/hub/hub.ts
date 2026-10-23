@@ -29,6 +29,7 @@ import type {
 	SessionUpdate,
 } from "../types.ts";
 import {
+	askNotice,
 	dialogLines,
 	dialogNotice,
 	exitedNotice,
@@ -536,12 +537,57 @@ export class Hub {
 			return;
 		}
 		const cause = causeOf(u);
-		if (cause === "asking") {
+		if (cause === "asking" && u.kind === "state") {
 			const was = agent.record.state;
-			if (this.transition(agent, "asking") && was !== "asking")
-				this.notifyParent(agent, waitingNotice(agent.record, u.detail));
-		} else if (cause) this.transition(agent, cause);
+			// A new ask while already asking (opencode's next permission) is news for the parent too.
+			const changed = JSON.stringify(u.ask) !== JSON.stringify(agent.ask);
+			agent.ask = u.ask;
+			agent.waitingFor = u.detail;
+			const asking = was === "asking" || this.transition(agent, "asking");
+			if (asking && (was !== "asking" || (u.ask && changed)))
+				this.notifyParent(agent, u.ask ? askNotice(agent.record, u.ask) : waitingNotice(agent.record, u.detail));
+		} else {
+			agent.ask = undefined;
+			agent.waitingFor = undefined;
+			if (cause) this.transition(agent, cause);
+		}
 		this.pump(agent);
+	}
+
+	/**
+	 * The parent answers what its worker waits on: a permission or question the adapter reported (answered through
+	 * the harness's own path, never the pane), or a startup dialog the parent was told about.
+	 */
+	async permit(req: {
+		from: string;
+		to: string;
+		choice: string;
+	}): Promise<{ ok: boolean; answered?: string; error?: string }> {
+		const to = this.registry.get(req.to);
+		if (!to) return { ok: false, error: this.registry.unknownAgent(req.to, req.from) };
+		if (to.record.state === "exited" || to.closing) return { ok: false, error: `${req.to} has exited` };
+		if (to.record.parent !== req.from)
+			return { ok: false, error: `only ${req.to}'s parent (${to.record.parent ?? "none"}) answers its permissions` };
+		const choice = req.choice?.trim() ?? "";
+		if (!choice) return { ok: false, error: "the choice is empty" };
+		if (to.ask && to.adapter?.answer) {
+			const r = await to.adapter.answer(choice);
+			this.log.event(req.to, "permit", "error" in r ? { choice, error: r.error } : { choice, answered: r.answered });
+			if ("error" in r) return { ok: false, error: r.error };
+			return { ok: true, answered: r.answered };
+		}
+		if (to.dialog && to.record.state === "asking") {
+			const r = await this.answerDialog("", to, choice);
+			return r.ok ? { ok: true, answered: r.answered } : { ok: false, error: r.error };
+		}
+		if (to.record.state === "asking" && to.askedParent)
+			return { ok: false, error: `${req.to} asked you a question with send: answer it with send, not permit` };
+		if (to.record.state === "asking")
+			return {
+				ok: false,
+				error: `${req.to} waits on something agent-link cannot answer for it (${to.waitingFor ?? "a prompt in its pane"}). Ask the user to answer it in ${req.to}'s pane.`,
+			};
+		return { ok: false, error: `${req.to} is not waiting on a permission or question (it is ${to.record.state})` };
 	}
 
 	/** Queues a hub notice or a result for the agent's parent, as if the agent had sent it. */

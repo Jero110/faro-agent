@@ -35,6 +35,9 @@ export class FakeAdapter implements AgentAdapter {
 	private releaseConnect?: () => void;
 	private failConnect?: (e: Error) => void;
 	launchError?: Error;
+	/** What permit() passed to answer(), in order; answerResult is what answer() returns (default: answered). */
+	readonly answers: string[] = [];
+	answerResult?: { answered: string } | { error: string };
 
 	constructor(deps: AdapterDeps, respond?: Responder) {
 		this.deps = deps;
@@ -55,6 +58,11 @@ export class FakeAdapter implements AgentAdapter {
 
 	connectFail(message: string): void {
 		this.failConnect?.(new Error(message));
+	}
+
+	async answer(choice: string): Promise<{ answered: string } | { error: string }> {
+		this.answers.push(choice);
+		return this.answerResult ?? { answered: choice };
 	}
 
 	async launch(spec: LaunchSpec): Promise<PaneCommand> {

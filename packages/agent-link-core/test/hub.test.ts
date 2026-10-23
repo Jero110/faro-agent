@@ -459,6 +459,59 @@ test("state asking update tells the parent what the worker waits on, once", () =
 		assert.equal(state(t, w), "working");
 	}));
 
+test("permit: the parent hears the ask with its options and answers it through the adapter, at any time", () =>
+	withHub(async (t) => {
+		const root = await pullRoot(t.client);
+		const w = await spawned(t, root);
+		const fake = await waitFor(() => t.kit.byName(w), "adapter");
+		await waitFor(() => fake.inTurn, "brief");
+		const ask = {
+			kind: "permission" as const,
+			questions: [{ question: "external_directory: /p/docs/*", options: ["Allow once", "Allow always", "Reject"] }],
+		};
+		fake.emit({ kind: "state", state: "asking", detail: "external_directory: /p/docs/*", ask });
+		assert.equal(state(t, w), "asking");
+		const texts = await inboxTexts(t, root);
+		assert.equal(texts.length, 1);
+		assert.match(
+			texts[0] ?? "",
+			/is waiting for your answer to a permission:\n\nexternal_directory: \/p\/docs\/\*\n {2}1\. Allow once\n {2}2\. Allow always\n {2}3\. Reject/,
+		);
+		assert.match(texts[0] ?? "", /permit\(\{ to: "claude", choice:/);
+
+		// Only the parent answers; an empty choice is refused before the adapter sees it.
+		assert.match((await t.client.permit({ from: "nobody", to: w, choice: "1" })).error ?? "", /parent/);
+		assert.match((await t.client.permit({ from: root, to: w, choice: " " })).error ?? "", /empty/);
+		fake.answerResult = { answered: "Allow once" };
+		assert.deepEqual(await t.client.permit({ from: root, to: w, choice: "1" }), { ok: true, answered: "Allow once" });
+		assert.deepEqual(fake.answers, ["1"]);
+
+		// A second ask while still asking is news too.
+		fake.emit({
+			kind: "state",
+			state: "asking",
+			detail: "bash: rm x",
+			ask: { ...ask, questions: [{ question: "bash: rm x", options: ["Allow once", "Reject"] }] },
+		});
+		assert.equal((await inboxTexts(t, root)).length, 1);
+		fake.emit({ kind: "state", state: "busy" });
+		assert.equal(state(t, w), "working");
+		assert.match((await t.client.permit({ from: root, to: w, choice: "1" })).error ?? "", /not waiting/);
+	}));
+
+test("permit on a wait the adapter cannot answer says to ask the user, without touching the pane", () =>
+	withHub(async (t) => {
+		const root = await pullRoot(t.client);
+		const w = await spawned(t, root);
+		const fake = await waitFor(() => t.kit.byName(w), "adapter");
+		await waitFor(() => fake.inTurn, "brief");
+		fake.emit({ kind: "state", state: "asking", detail: "waiting" });
+		const r = await t.client.permit({ from: root, to: w, choice: "1" });
+		assert.equal(r.ok, false);
+		assert.match(r.error ?? "", /cannot answer for it \(waiting\)\. Ask the user to answer it in claude's pane/);
+		assert.deepEqual(fake.answers, []);
+	}));
+
 test("status scope: parent, children and grandchildren; unknownAgent lists whom a worker can message", () =>
 	withHub(async (t) => {
 		const root = await pullRoot(t.client);

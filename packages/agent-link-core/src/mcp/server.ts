@@ -15,6 +15,7 @@ import {
 	errorReply,
 	inboxReply,
 	instructions,
+	permitReply,
 	replyReply,
 	sendReply,
 	spawnReply,
@@ -163,6 +164,13 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
 					const to = str("to") ?? "";
 					return withPullReminder(
 						sendReply(await s.client.send({ from: s.name, to, message: str("message") ?? "" }), to),
+						s.pull,
+					);
+				}
+				case "permit": {
+					const to = str("to") ?? "";
+					return withPullReminder(
+						permitReply(await s.client.permit({ from: s.name, to, choice: str("choice") ?? "" }), to),
 						s.pull,
 					);
 				}

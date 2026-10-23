@@ -1,6 +1,6 @@
 // The tree of agents the hub runs: names, parents, who may talk to whom and what status shows to whom.
 // The hub keeps it in memory; the event log (src/log.ts) keeps its history.
-import type { AgentAdapter, AgentRecord, BackendName, PlaceHint, Profile } from "../types.ts";
+import type { AgentAdapter, AgentRecord, BackendName, PendingAsk, PlaceHint, Profile } from "../types.ts";
 import type { QueuedMessage } from "./queue.ts";
 
 /** One agent as the hub tracks it: its record plus what the queue and result routing need. */
@@ -28,6 +28,10 @@ export interface Agent {
 	held?: string;
 	/** An unknown dialog in the agent's pane that the parent was asked about. */
 	dialog?: { text: string; options: string[] };
+	/** The permission or question the adapter reported and can answer (AgentAdapter.answer): permit() picks. */
+	ask?: PendingAsk;
+	/** What the agent waits on while asking, as the adapter said it; for permit()'s error when it cannot answer. */
+	waitingFor?: string;
 	/** Process to watch, for roots: when it is gone, the root and its tree close. */
 	pid?: number;
 	runDir?: string;

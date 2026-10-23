@@ -6,6 +6,7 @@
 // running turn (one session.idle), so the hub sends only while idle. The TUI shows the turns the API starts.
 import { execFile } from "node:child_process";
 import { createServer } from "node:net";
+import { pickChoices, pickedText } from "../ask.ts";
 import type {
 	AdapterDeps,
 	AdapterFactory,
@@ -13,6 +14,7 @@ import type {
 	LaunchSpec,
 	PaneCommand,
 	PaneHandle,
+	PendingAsk,
 	PromptRequest,
 	PromptResponse,
 	SessionUpdate,
@@ -101,10 +103,20 @@ export interface OpencodeEvent {
 		sessionID?: string;
 		status?: { type?: string };
 		error?: { name?: string; data?: { message?: string } };
+		/** permission.asked / question.asked: the request's id; *.replied: requestID. */
+		id?: string;
+		requestID?: string;
 		permission?: string;
 		action?: string;
 		patterns?: string[];
 		resources?: string[];
+		metadata?: { filepath?: string };
+		questions?: Array<{
+			question?: string;
+			header?: string;
+			options?: Array<{ label?: string; description?: string }>;
+			multiple?: boolean;
+		}>;
 		info?: { id?: string; role?: string; sessionID?: string };
 		part?: {
 			type?: string;
@@ -154,6 +166,16 @@ export function createOpencodeAdapter(deps: AdapterDeps, opts: OpencodeOptions =
 	let pane: PaneHandle | undefined;
 	let busy = false;
 	let asking = false;
+	/**
+	 * Permissions and questions opencode waits on, oldest first; the first is the one reported to the hub.
+	 * v2 permissions reply on another route. Labels are what a question's reply sends back.
+	 */
+	const asks: Array<{
+		id: string;
+		route: "permission" | "permission-v2" | "question";
+		ask: PendingAsk;
+		labels: string[][];
+	}> = [];
 	let paneTurn = false;
 	const userMessages = new Set<string>();
 	let lastScreen = "";
@@ -209,11 +231,31 @@ export function createOpencodeAdapter(deps: AdapterDeps, opts: OpencodeOptions =
 	}
 
 	function setBusy(next: boolean): void {
+		// A busy or idle status while a permission or question is open does not end the wait.
+		if (asks.length) {
+			busy = next;
+			return;
+		}
 		if (next === busy && !asking) return;
 		busy = next;
 		asking = false;
 		emit({ kind: "state", state: next ? "busy" : "idle" });
 	}
+
+	/** Reports the oldest open ask, or leaves asking when none is left. */
+	function reportAsk(): void {
+		const first = asks[0];
+		if (first) {
+			asking = true;
+			emit({ kind: "state", state: "asking", detail: first.ask.questions[0]?.question, ask: first.ask });
+		} else if (asking) {
+			asking = false;
+			emit({ kind: "state", state: busy ? "busy" : "idle" });
+		}
+	}
+
+	const PERMISSION_OPTIONS = ["Allow once", "Allow always", "Reject"];
+	const PERMISSION_REPLIES = ["once", "always", "reject"] as const;
 
 	async function onEvent(ev: OpencodeEvent): Promise<void> {
 		const p = ev.properties ?? {};
@@ -260,23 +302,70 @@ export function createOpencodeAdapter(deps: AdapterDeps, opts: OpencodeOptions =
 				return;
 			}
 			case "permission.asked":
-			case "permission.v2.asked":
+			case "permission.v2.asked": {
+				const what = p.permission ?? p.action ?? "permission";
+				const on = (p.patterns ?? p.resources ?? []).join(", ") || p.metadata?.filepath || "";
+				const question = on ? `${what}: ${on}` : what;
+				if (p.id && !asks.some((a) => a.id === p.id))
+					asks.push({
+						id: p.id,
+						route: ev.type === "permission.asked" ? "permission" : "permission-v2",
+						ask: { kind: "permission", questions: [{ question, options: PERMISSION_OPTIONS }] },
+						labels: [],
+					});
+				if (p.id) reportAsk();
+				else {
+					// No id: nothing to answer through the API; the parent hears it as a wait in the pane.
+					asking = true;
+					emit({ kind: "state", state: "asking", detail: question });
+				}
+				return;
+			}
 			case "question.asked": {
-				asking = true;
-				const what = p.permission ?? p.action ?? "question";
-				const on = (p.patterns ?? p.resources ?? []).join(", ");
-				emit({ kind: "state", state: "asking", detail: on ? `${what}: ${on}` : what });
+				const qs = (p.questions ?? []).map((q) => ({
+					question: q.question ?? q.header ?? "question",
+					options: (q.options ?? []).map((o) =>
+						o.description ? `${o.label ?? ""} — ${o.description}` : (o.label ?? ""),
+					),
+					labels: (q.options ?? []).map((o) => o.label ?? ""),
+					multiple: q.multiple === true,
+				}));
+				if (p.id && qs.length && !asks.some((a) => a.id === p.id))
+					asks.push({
+						id: p.id,
+						route: "question",
+						ask: {
+							kind: "question",
+							questions: qs.map((q) => ({
+								question: q.question,
+								options: q.options,
+								multiple: q.multiple || undefined,
+							})),
+						},
+						labels: qs.map((q) => q.labels),
+					});
+				if (p.id && qs.length) reportAsk();
+				else {
+					asking = true;
+					emit({ kind: "state", state: "asking", detail: "question" });
+				}
 				return;
 			}
 			case "permission.replied":
 			case "permission.v2.replied":
 			case "question.replied":
-			case "question.rejected":
-				if (asking) {
+			case "question.rejected": {
+				const id = p.requestID ?? p.id;
+				const i = id ? asks.findIndex((a) => a.id === id) : -1;
+				if (i >= 0) asks.splice(i, 1);
+				else if (!id) asks.length = 0;
+				if (asks.length) reportAsk();
+				else if (asking) {
 					asking = false;
 					emit({ kind: "state", state: busy ? "busy" : "idle" });
 				}
 				return;
+			}
 			case "message.part.updated": {
 				const part = p.part;
 				if (part?.type === "text" && part.text && part.time?.end) {
@@ -437,6 +526,32 @@ export function createOpencodeAdapter(deps: AdapterDeps, opts: OpencodeOptions =
 
 		onUpdate(listener) {
 			listeners.push(listener);
+		},
+
+		async answer(choice: string): Promise<{ answered: string } | { error: string }> {
+			const open = asks[0];
+			if (!open) return { error: "opencode is not waiting on a permission or question" };
+			const picked = pickChoices(open.ask, choice);
+			if ("error" in picked) return picked;
+			try {
+				if (open.route === "question") {
+					const answers = picked.picks.map((p, i) => p.map((j) => open.labels[i]?.[j] ?? ""));
+					await api(`/question/${open.id}/reply`, { answers });
+				} else {
+					const reply = PERMISSION_REPLIES[picked.picks[0]?.[0] ?? 0] ?? "once";
+					await api(
+						open.route === "permission"
+							? `/permission/${open.id}/reply`
+							: `/api/session/${session}/permission/${open.id}/reply`,
+						{ reply },
+					);
+				}
+			} catch (e) {
+				return { error: `opencode did not take the answer: ${e instanceof Error ? e.message : String(e)}` };
+			}
+			deps.log("answered", { id: open.id, route: open.route, choice });
+			// opencode confirms with *.replied, which drops the ask; until then it stays reported.
+			return { answered: pickedText(open.ask, picked.picks) };
 		},
 	};
 }

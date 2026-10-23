@@ -54,11 +54,11 @@ function mcp(opts: Omit<Parameters<typeof runMcpServer>[0], "input" | "output">)
 
 const init = (client: string) => ({ protocolVersion: "2025-06-18", clientInfo: { name: client, version: "1" } });
 
-test("six tools, each with anthropic/alwaysLoad, with the tested wording", () => {
+test("seven tools, each with anthropic/alwaysLoad, with the tested wording", () => {
 	const tools = toolDefs({ harnesses: ["claude", "codex", "opencode", "pi"], pull: false });
 	assert.deepEqual(
 		tools.map((t) => t.name),
-		["spawn", "send", "reply", "status", "cancel", "inbox"],
+		["spawn", "send", "permit", "reply", "status", "cancel", "inbox"],
 	);
 	const by = (n: string) => tools.find((t) => t.name === n)?.description ?? "";
 	assert.match(by("spawn"), /Returns at once with the worker's exact name/);
@@ -103,7 +103,7 @@ test("no identity: the server registers once as a pull root named after its clie
 		assert.match(String(init1.instructions), /read them with inbox\(\)/);
 		assert.match(String(init1.instructions), /never with SendMessage or ListAgents/);
 		const list = (await server.rpc("tools/list")).result as { tools: Array<{ name: string; _meta: Json }> };
-		assert.equal(list.tools.length, 6);
+		assert.equal(list.tools.length, 7);
 		assert.ok(list.tools.every((x) => x._meta["anthropic/alwaysLoad"] === true));
 
 		const spawn = await server.tool("spawn", { harness: "pi", task: "count files", name: "counter" });

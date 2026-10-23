@@ -43,7 +43,10 @@ the format; you rarely need it.
 
 The brief for each agent. Send it inline; when it is long, write it inside the project
 (`docs/plans/<slug>-briefs/<T-id>.md`) and pass that path: agents in other harnesses may stop at a permission prompt
-for files outside their working folder (opencode does for `/tmp`).
+for files outside their working folder (opencode does for `/tmp`). When an agent stops on a permission or a question,
+agent-link sends you `[agent-link] <agent> is waiting for your answer` with numbered options: answer it at once with
+`permit({ to, choice })` when the plan covers it (reading its brief, writing inside the project), and log it in the
+ledger. Anything risky or outside the plan (deleting, pushing, the user's other files) goes to the user first.
 
 ```
 Task <T-id> of <absolute plan path>: <title>

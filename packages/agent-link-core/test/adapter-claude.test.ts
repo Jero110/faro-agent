@@ -14,7 +14,14 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { CLAUDE_HOOK, claudeFrames, createClaudeAdapter, pretrustClaude, projectSlug } from "../src/adapters/claude.ts";
+import {
+	CLAUDE_HOOK,
+	CLAUDE_PERMIT_HOOK,
+	claudeFrames,
+	createClaudeAdapter,
+	pretrustClaude,
+	projectSlug,
+} from "../src/adapters/claude.ts";
 import type { AgentAdapter, LaunchSpec, PaneBackend, SessionUpdate } from "../src/types.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -452,4 +459,100 @@ test("claude guard hook denies risky Bash for workers, asks at depth 0 and allow
 	assert.equal(run("npm test", "1"), "");
 	// No depth: the safe side, a worker.
 	assert.equal(JSON.parse(run("git push", "")).hookSpecificOutput.permissionDecision, "deny");
+});
+
+/** Runs the real PermissionRequest hook as Claude would: the request on stdin, the decision on stdout. */
+function runPermitHook(socket: string, input: unknown, env: Record<string, string> = {}) {
+	const child = spawn(process.execPath, [CLAUDE_PERMIT_HOOK, socket], { env: { ...process.env, ...env } });
+	let out = "";
+	child.stdout.on("data", (d) => {
+		out += String(d);
+	});
+	child.stdin.end(JSON.stringify(input));
+	return new Promise<string>((resolve) => child.on("close", () => resolve(out)));
+}
+
+// The request a real Claude Code 2.1.309 worker sent to its PermissionRequest hook (paths made short).
+const PERMISSION_INPUT = {
+	hook_event_name: "PermissionRequest",
+	tool_name: "Bash",
+	tool_input: { command: "touch /x/outside/made.txt", description: "Create empty made.txt" },
+	permission_suggestions: [
+		{ type: "addDirectories", directories: ["/x/outside"], destination: "session" },
+		{ type: "setMode", mode: "acceptEdits", destination: "session" },
+	],
+};
+
+test("a worker's permission request reaches the parent as an ask; permit answers it through the hook, never the pane", async () => {
+	const c = await fakeClaude();
+	try {
+		const settings = JSON.parse(c.cmd.argv[c.cmd.argv.indexOf("--settings") + 1] ?? "");
+		const command: string = settings.hooks.PermissionRequest[0].hooks[0].command;
+		const socket = join(c.runDir, "permit.sock");
+		assert.equal(command, `'${process.execPath}' '${CLAUDE_PERMIT_HOOK}' '${socket}'`);
+		await c.start();
+		c.status("busy");
+		await until(() => c.updates.some((u) => u.kind === "state" && u.state === "busy"), "busy");
+
+		const out = runPermitHook(socket, PERMISSION_INPUT);
+		await until(() => c.updates.some((u) => u.kind === "state" && u.state === "asking"), "asking");
+		const asking = c.updates.find((u) => u.kind === "state" && u.state === "asking") as { ask?: unknown };
+		assert.deepEqual(asking.ask, {
+			kind: "permission",
+			questions: [
+				{
+					question: "Bash: touch /x/outside/made.txt",
+					options: ["Allow once", "Allow always (allow /x/outside for this session)", "Deny"],
+				},
+			],
+		});
+		// Claude's session file changing meanwhile does not end the wait.
+		c.status("waiting", { waitingFor: "permission" });
+		await new Promise((r) => setTimeout(r, 40));
+		assert.equal((c.updates.at(-1) as { ask?: unknown }).ask !== undefined, true);
+
+		assert.deepEqual(await c.adapter.answer?.("2"), { answered: "Allow always (allow /x/outside for this session)" });
+		// "Always" applies Claude's own suggestion, but never its mode change.
+		assert.deepEqual(JSON.parse(await out), {
+			hookSpecificOutput: {
+				hookEventName: "PermissionRequest",
+				decision: {
+					behavior: "allow",
+					updatedPermissions: [{ type: "addDirectories", directories: ["/x/outside"], destination: "session" }],
+				},
+			},
+		});
+		assert.deepEqual(await c.adapter.answer?.("1"), {
+			error: "claude is not waiting on a permission agent-link can answer",
+		});
+
+		const denied = runPermitHook(socket, { ...PERMISSION_INPUT, permission_suggestions: [] });
+		await until(
+			() =>
+				(c.updates.at(-1) as { ask?: { questions: Array<{ options: string[] }> } }).ask?.questions[0]?.options
+					.length === 2,
+			"second ask",
+		);
+		assert.deepEqual(await c.adapter.answer?.("no"), { answered: "Deny" });
+		assert.equal(JSON.parse(await denied).hookSpecificOutput.decision.behavior, "deny");
+	} finally {
+		await c.done();
+	}
+});
+
+test("the permit hook prints nothing when nobody answers in time or no adapter listens, so Claude shows its own dialog", async () => {
+	const c = await fakeClaude();
+	try {
+		await c.start();
+		const socket = join(c.runDir, "permit.sock");
+		const out = await runPermitHook(socket, PERMISSION_INPUT, { AGENT_LINK_PERMIT_WAIT_MS: "150" });
+		assert.equal(out, "");
+		await until(
+			() => c.updates.at(-1)?.kind === "state" && !(c.updates.at(-1) as { ask?: unknown }).ask,
+			"ask dropped",
+		);
+		assert.equal(await runPermitHook(join(c.runDir, "nobody.sock"), PERMISSION_INPUT), "");
+	} finally {
+		await c.done();
+	}
 });

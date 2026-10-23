@@ -72,6 +72,19 @@ async function fakeOpencode() {
 				return;
 			}
 			if (path === `/session/${SID}/abort`) return json(true);
+			// Like opencode: the reply is taken, then *.replied goes out on /event.
+			const permit = path.match(/^\/permission\/([^/]+)\/reply$/);
+			if (permit && req.method === "POST") {
+				json(true);
+				send("permission.replied", { sessionID: SID, requestID: permit[1], reply: body.reply });
+				return;
+			}
+			const question = path.match(/^\/question\/([^/]+)\/reply$/);
+			if (question && req.method === "POST") {
+				json(true);
+				send("question.replied", { sessionID: SID, requestID: question[1], answers: body.answers });
+				return;
+			}
 			res.statusCode = 404;
 			res.end();
 		});
@@ -239,7 +252,15 @@ test("opencode permission requests make the agent asking, the reply makes it bus
 	await until(() => updates.some((u) => u.kind === "state" && u.state === "asking"), "asking");
 	assert.deepEqual(
 		updates.find((u) => u.kind === "state" && u.state === "asking"),
-		{ kind: "state", state: "asking", detail: "bash: git push" },
+		{
+			kind: "state",
+			state: "asking",
+			detail: "bash: git push",
+			ask: {
+				kind: "permission",
+				questions: [{ question: "bash: git push", options: ["Allow once", "Allow always", "Reject"] }],
+			},
+		},
 	);
 	assert.equal(adapter.idle(), false);
 	oc.send("permission.replied", { sessionID: SID, requestID: "per1", reply: "once" });
@@ -359,4 +380,62 @@ test("opencode guard leaves other tools and non-workers untouched", async () => 
 	await bash("git push origin main");
 	process.env.AGENT_LINK_DEPTH = "0";
 	await bash("git push origin main");
+});
+
+test("permit answers an opencode permission through its API, never the pane; a busy status does not end the wait", async () => {
+	const { oc, adapter, updates } = await started();
+	oc.onPrompt.push(() => {
+		oc.status("busy");
+		oc.send("permission.asked", {
+			id: "per7",
+			sessionID: SID,
+			permission: "external_directory",
+			patterns: ["/proj/docs/plans/*"],
+		});
+		oc.status("busy");
+	});
+	const p = adapter.prompt({ id: "m1", from: "agent-link", text: "read the brief" });
+	await until(() => updates.some((u) => u.kind === "state" && u.state === "asking"), "asking");
+	assert.equal(updates.at(-1)?.kind === "state" && (updates.at(-1) as { state: string }).state, "asking");
+	assert.deepEqual(await adapter.answer?.("9"), { error: "there is no option 9" });
+	assert.deepEqual(await adapter.answer?.("always"), { answered: "Allow always" });
+	assert.deepEqual(
+		oc.requests.find((r) => r.path === "/permission/per7/reply"),
+		{ method: "POST", path: "/permission/per7/reply", body: { reply: "always" } },
+	);
+	await until(() => updates.at(-1)?.kind === "state" && (updates.at(-1) as { state: string }).state === "busy", "busy");
+	assert.deepEqual(await adapter.answer?.("1"), { error: "opencode is not waiting on a permission or question" });
+	oc.reply("read it");
+	oc.idle();
+	assert.deepEqual(await p, { stopReason: "end_turn", text: "read it" });
+});
+
+test("permit answers an opencode question with several options picked, sending their labels", async () => {
+	const { oc, adapter, updates } = await started();
+	oc.status("busy");
+	oc.send("question.asked", {
+		id: "que1",
+		sessionID: SID,
+		questions: [
+			{
+				question: "¿Qué ciudades?",
+				header: "Ciudades",
+				multiple: true,
+				options: [
+					{ label: "Tokio", description: "2 días" },
+					{ label: "Kioto", description: "1 día" },
+					{ label: "Osaka", description: "" },
+				],
+			},
+		],
+	});
+	await until(() => updates.some((u) => u.kind === "state" && u.state === "asking"), "asking");
+	const asking = updates.find((u) => u.kind === "state" && u.state === "asking") as { ask?: unknown };
+	assert.deepEqual(asking.ask, {
+		kind: "question",
+		questions: [{ question: "¿Qué ciudades?", options: ["Tokio — 2 días", "Kioto — 1 día", "Osaka"], multiple: true }],
+	});
+	assert.deepEqual(await adapter.answer?.("1, kioto"), { answered: "Tokio — 2 días, Kioto — 1 día" });
+	assert.deepEqual(oc.requests.find((r) => r.path === "/question/que1/reply")?.body, { answers: [["Tokio", "Kioto"]] });
+	await until(() => updates.at(-1)?.kind === "state" && (updates.at(-1) as { state: string }).state === "busy", "busy");
 });

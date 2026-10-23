@@ -52,10 +52,31 @@ export interface PromptResponse {
 	text: string;
 }
 
+/** One question of a PendingAsk: what is asked and its options, in order. */
+export interface AskQuestion {
+	question: string;
+	options: string[];
+	/** Several options may be picked at once ("1,3"). */
+	multiple?: boolean;
+}
+
+/**
+ * A permission or question the harness waits on, read from the harness itself (its API, a hook), not from the
+ * pane: the parent answers it with permit(). A permission is one question whose options are its answers.
+ */
+export interface PendingAsk {
+	/** "permission" or "question", for the parent's notice. */
+	kind: "permission" | "question";
+	questions: AskQuestion[];
+}
+
 /** ACP session/update, reduced to what the hub uses. */
 export type SessionUpdate =
-	/** busy: a turn runs. idle: no turn runs. asking: the harness waits on the user (permission, dialog). */
-	| { kind: "state"; state: "idle" | "busy" | "asking"; detail?: string }
+	/**
+	 * busy: a turn runs. idle: no turn runs. asking: the harness waits on the user (permission, dialog);
+	 * `ask` when the adapter can say what is asked and answer it itself (AgentAdapter.answer).
+	 */
+	| { kind: "state"; state: "idle" | "busy" | "asking"; detail?: string; ask?: PendingAsk }
 	| { kind: "agent_message"; text: string }
 	| { kind: "tool_call"; title: string; status?: "pending" | "in_progress" | "completed" | "failed" }
 	/**
@@ -118,6 +139,11 @@ export interface AgentAdapter {
 	/** Releases sockets, servers and child processes. The hub closes the pane itself. Idempotent. */
 	close(): Promise<void>;
 	onUpdate(listener: (u: SessionUpdate) => void): void;
+	/**
+	 * Answers the PendingAsk the adapter last reported, through the harness's own path (API, hook), never the
+	 * pane. `choice` is what the parent passed to permit(): option numbers or texts (see ask.ts).
+	 */
+	answer?(choice: string): Promise<{ answered: string } | { error: string }>;
 }
 
 export type AdapterFactory = (deps: AdapterDeps) => AgentAdapter;

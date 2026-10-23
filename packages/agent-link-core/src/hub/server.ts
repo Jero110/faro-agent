@@ -211,6 +211,8 @@ async function handle(hub: Hub, token: string, req: IncomingMessage, res: Server
 			);
 		case "/reply":
 			return json(res, 200, hub.reply({ from: str("from"), result: str("result") }));
+		case "/permit":
+			return json(res, 200, await hub.permit({ from: str("from"), to: str("to"), choice: str("choice") }));
 		case "/cancel": {
 			const r = await hub.cancel({ from: str("from"), name: str("name") });
 			return json(res, 200, r.ok ? { ok: true } : { error: r.error });

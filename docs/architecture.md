@@ -31,7 +31,7 @@ extensions.
 
 - **Hub daemon**: one per machine, socket `~/.agent-link/hub.sock` (0600), token `~/.agent-link/token`. Started on demand
   by the MCP server or `agent-link open`.
-- **MCP server**: six tools (`spawn`, `send`, `reply`, `status`, `cancel`, `inbox`), one entry per backend
+- **MCP server**: seven tools (`spawn`, `send`, `permit`, `reply`, `status`, `cancel`, `inbox`), one entry per backend
   (`agent-link-cmux`, `agent-link-tmux`). The model never sees adapters.
 - **Adapters**, one per harness, each by its native path: Claude Code's messaging socket, Codex's app-server, opencode's
   HTTP server, pi's extension socket. A harness without one can use a `paste` profile.

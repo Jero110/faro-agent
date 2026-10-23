@@ -1,5 +1,6 @@
 // Messages as the hub queues them, the texts an agent sees, and the dedupe of repeated message ids.
-import type { AgentRecord, StopReason } from "../types.ts";
+import { askLines } from "../ask.ts";
+import type { AgentRecord, PendingAsk, StopReason } from "../types.ts";
 
 /**
  * What a queued message is: a message one agent sent another, the result of a turn, the brief a new
@@ -52,6 +53,18 @@ export class SeenIds {
 }
 
 /** "<name> (<harness> · <model>)" */
+/** A worker waits on a permission or question its adapter can answer: the parent picks with permit(). */
+export function askNotice(agent: Pick<AgentRecord, "name" | "harness" | "model">, ask: PendingAsk): string {
+	const several = ask.questions.length > 1 ? ', one answer per question separated by ";"' : "";
+	return [
+		`[agent-link] ${who(agent)} is waiting for your answer to a ${ask.kind}:`,
+		"",
+		askLines(ask),
+		"",
+		`Answer with permit({ to: "${agent.name}", choice: "<option number or text>" })${several}. It goes on as soon as you answer. If only the user should decide, ask the user first.`,
+	].join("\n");
+}
+
 export function who(agent: Pick<AgentRecord, "name" | "harness" | "model">): string {
 	return `${agent.name} (${agent.harness}${agent.model ? ` · ${agent.model}` : ""})`;
 }

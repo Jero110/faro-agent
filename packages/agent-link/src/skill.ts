@@ -5,7 +5,7 @@ export const SKILL_NAME = "agent-link";
 
 export const SKILL_MD = `---
 name: agent-link
-description: Launch other coding agents (claude, codex, opencode, faro, pi) in their own terminal panes and talk to them with the agent-link tools spawn, send, reply, status, cancel and inbox; read what any agent did from its transcript. Use when a task splits into parts that can run in parallel, needs research or a second opinion, the user asks for another agent or model, or asks what another agent or pane did.
+description: Launch other coding agents (claude, codex, opencode, faro, pi) in their own terminal panes and talk to them with the agent-link tools spawn, send, permit, reply, status, cancel and inbox; read what any agent did from its transcript. Use when a task splits into parts that can run in parallel, needs research or a second opinion, the user asks for another agent or model, or asks what another agent or pane did.
 ---
 
 # agent-link
@@ -32,6 +32,8 @@ Use that exact name with send and cancel; status lists the names around you.
 - After spawning or sending, tell the user what runs and end your turn.
 - Never wait, sleep, or call status or inbox in a loop: they show state, not results.
 - A worker that asks you something: answer with send({ to: "<worker>", message }).
+- A worker that waits on a permission or a question (agent-link tells you its numbered options): answer with
+  permit({ to: "<worker>", choice: "<number or option>" }), at any time. Ask the user first when only they should decide.
 - As a worker, your final answer reaches your parent by itself; call reply({ result }) only to set it
   explicitly, and send({ to: "<parent>", message }) to ask before you finish.
 

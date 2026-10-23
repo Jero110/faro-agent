@@ -23,13 +23,15 @@ import {
 	readSync,
 	realpathSync,
 	renameSync,
+	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { connect as connectSocket } from "node:net";
+import { connect as connectSocket, createServer, type Server, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pickChoices, pickedText } from "../ask.ts";
 import type {
 	AdapterDeps,
 	AdapterFactory,
@@ -37,6 +39,7 @@ import type {
 	LaunchSpec,
 	PaneCommand,
 	PaneHandle,
+	PendingAsk,
 	PromptRequest,
 	PromptResponse,
 	SessionUpdate,
@@ -45,6 +48,65 @@ import type {
 
 /** The guard hook Claude runs before every Bash call (PreToolUse). */
 export const CLAUDE_HOOK = fileURLToPath(new URL("./claude-hook.ts", import.meta.url));
+/** The hook a worker's Claude runs on a permission request (PermissionRequest): the parent answers with permit(). */
+export const CLAUDE_PERMIT_HOOK = fileURLToPath(new URL("./claude-permit-hook.ts", import.meta.url));
+
+/** What Claude's PermissionRequest hook receives, the fields the adapter reads. */
+export interface PermissionRequestInput {
+	tool_name?: string;
+	tool_input?: Record<string, unknown>;
+	permission_suggestions?: Array<{ type?: string; destination?: string; [k: string]: unknown }>;
+}
+
+/** One line for what Claude asks to do: the tool and its command, path or input. */
+export function permissionQuestion(input: PermissionRequestInput): string {
+	const tool = input.tool_name ?? "tool";
+	const ti = input.tool_input ?? {};
+	for (const key of ["command", "file_path", "path", "url", "pattern"]) {
+		const v = ti[key];
+		if (typeof v === "string" && v) return `${tool}: ${v}`;
+	}
+	const rest = JSON.stringify(ti);
+	return rest && rest !== "{}" ? `${tool}: ${rest.length > 300 ? `${rest.slice(0, 300)}…` : rest}` : tool;
+}
+
+/**
+ * The suggestions "Allow always" applies: Claude's own, without a mode change (acceptEdits would allow far more
+ * than this request).
+ */
+function alwaysUpdates(input: PermissionRequestInput): PermissionRequestInput["permission_suggestions"] {
+	return (input.permission_suggestions ?? []).filter((u) => u.type !== "setMode");
+}
+
+function describeUpdate(u: NonNullable<PermissionRequestInput["permission_suggestions"]>[number]): string {
+	const where = u.destination === "session" ? "for this session" : `in ${u.destination ?? "settings"}`;
+	if (u.type === "addDirectories" && Array.isArray(u.directories)) return `allow ${u.directories.join(", ")} ${where}`;
+	if (Array.isArray(u.rules))
+		return `${u.type === "addRules" ? "add rule" : String(u.type)} ${u.rules
+			.map((r) =>
+				r && typeof r === "object"
+					? `${(r as { toolName?: string }).toolName ?? ""}${(r as { ruleContent?: string }).ruleContent ? `(${(r as { ruleContent?: string }).ruleContent})` : ""}`
+					: String(r),
+			)
+			.join(", ")} ${where}`;
+	return `${u.type ?? "update"} ${where}`;
+}
+
+/** The ask a permission request becomes, and the hook output each option stands for. */
+export function permissionAsk(input: PermissionRequestInput): { ask: PendingAsk; outputs: string[] } {
+	const decision = (d: Record<string, unknown>) =>
+		JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: d } });
+	const options = ["Allow once"];
+	const outputs = [decision({ behavior: "allow" })];
+	const always = alwaysUpdates(input) ?? [];
+	if (always.length) {
+		options.push(`Allow always (${always.map(describeUpdate).join("; ")})`);
+		outputs.push(decision({ behavior: "allow", updatedPermissions: always }));
+	}
+	options.push("Deny");
+	outputs.push(decision({ behavior: "deny", message: "The agent that launched you denied this permission." }));
+	return { ask: { kind: "permission", questions: [{ question: permissionQuestion(input), options }] }, outputs };
+}
 
 /** macOS limits a Unix socket path to 104 bytes (sun_path); a longer one fails late and obscurely. */
 const MAX_SOCKET_PATH = 103;
@@ -58,6 +120,8 @@ export interface ClaudeOptions {
 	mcpInstalled?: () => Promise<boolean>;
 	/** The node binary the hook runs with. Default: this process's. */
 	node?: string;
+	/** How long a worker waits for the PermissionRequest hook after Claude goes `waiting` (default 1500 ms). */
+	hookGraceMs?: number;
 	pollMs?: number;
 	connectTimeoutMs?: number;
 	/** After cancel, how long an idle session may show no turn before prompt() resolves as cancelled anyway. */
@@ -72,9 +136,15 @@ export function claudeFrames(token: string, sessionId: string, text: string): st
 }
 
 /** Settings passed with --settings: the guard as a PreToolUse hook on Bash, with the agent's depth. */
-export function claudeSettings(node: string, hook: string, depth: number): string {
+export function claudeSettings(node: string, hook: string, depth: number, permitSocket?: string): string {
 	const command = `'${node}' '${hook}' ${depth}`;
-	return JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command }] }] } });
+	const hooks: Record<string, unknown> = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command }] }] };
+	if (permitSocket) {
+		// The hook waits up to PERMIT_WAIT_MS (10 min) for the parent; Claude's timeout must be longer.
+		const permit = `'${node}' '${CLAUDE_PERMIT_HOOK}' '${permitSocket}'`;
+		hooks.PermissionRequest = [{ matcher: "*", hooks: [{ type: "command", command: permit, timeout: 660 }] }];
+	}
+	return JSON.stringify({ hooks });
 }
 
 /** Claude's folder for a project's transcripts: the cwd with every character but [a-zA-Z0-9] as "-". */
@@ -210,6 +280,58 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 	let paneTurn: number | undefined;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let gone = false;
+	/** Workers: permission requests the PermissionRequest hook handed over, oldest first, each waiting on its socket. */
+	let permitServer: Server | undefined;
+	const permits: Array<{ socket: Socket; ask: PendingAsk; outputs: string[] }> = [];
+	/**
+	 * Claude marks the session `waiting` a moment before it runs the PermissionRequest hook. A worker with the hook
+	 * waits this long before reporting a wait without options, so its parent hears the ask, not "waiting in its pane".
+	 */
+	const HOOK_GRACE_MS = opts.hookGraceMs ?? 1500;
+	let waitingTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Answered just now: the session file may still read `waiting` until Claude goes on. */
+	let answeredAt = 0;
+
+	/** Reports the oldest permission request, or, when none is left, the state Claude's session file says. */
+	function reportPermit(): void {
+		const first = permits[0];
+		if (first) emit({ kind: "state", state: "asking", detail: first.ask.questions[0]?.question, ask: first.ask });
+		else if (status === "waiting" && Date.now() - answeredAt > HOOK_GRACE_MS)
+			emit({ kind: "state", state: "asking", detail: "waiting" });
+		else emit({ kind: "state", state: status === "idle" ? "idle" : "busy" });
+	}
+
+	function onPermitSocket(socket: Socket): void {
+		let buf = "";
+		let entry: (typeof permits)[number] | undefined;
+		socket.setEncoding("utf8");
+		socket.on("data", (d: string) => {
+			if (entry) return;
+			buf += d;
+			const end = buf.indexOf("\n");
+			if (end < 0) return;
+			let input: PermissionRequestInput = {};
+			try {
+				input = JSON.parse(buf.slice(0, end)) as PermissionRequestInput;
+			} catch {
+				socket.end("\n");
+				return;
+			}
+			const { ask, outputs } = permissionAsk(input);
+			entry = { socket, ask, outputs };
+			permits.push(entry);
+			deps.log("permission_request", { question: ask.questions[0]?.question });
+			reportPermit();
+		});
+		// The hook gave up waiting (or Claude stopped it): Claude shows its own dialog in the pane now.
+		socket.on("close", () => {
+			const i = entry ? permits.indexOf(entry) : -1;
+			if (i < 0) return;
+			permits.splice(i, 1);
+			reportPermit();
+		});
+		socket.on("error", () => socket.destroy());
+	}
 
 	function findSession(): { file: string; info: SessionInfo } | undefined {
 		if (!existsSync(sessionsDir)) return undefined;
@@ -339,9 +461,19 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 		if (next === status) return;
 		const prev = status;
 		status = next;
-		if (next === "busy") emit({ kind: "state", state: "busy" });
+		if (waitingTimer) clearTimeout(waitingTimer);
+		waitingTimer = undefined;
+		// While the permit hook holds a request, that request is what the agent waits on, whatever the file says.
+		if (permits.length) reportPermit();
+		else if (next === "busy") emit({ kind: "state", state: "busy" });
 		else if (next === "idle") emit({ kind: "state", state: "idle" });
-		else if (next === "waiting") emit({ kind: "state", state: "asking", detail: waitingFor ?? "waiting" });
+		else if (next === "waiting" && permitServer) {
+			waitingTimer = setTimeout(() => {
+				waitingTimer = undefined;
+				if (status === "waiting" && !permits.length && !gone)
+					emit({ kind: "state", state: "asking", detail: waitingFor ?? "waiting" });
+			}, HOOK_GRACE_MS);
+		} else if (next === "waiting") emit({ kind: "state", state: "asking", detail: waitingFor ?? "waiting" });
 		if (next === "busy" || next === "waiting") {
 			if (pending) pending.busy = true;
 			else if (paneTurn === undefined) paneTurn = entries.length;
@@ -406,6 +538,21 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 			}
 			pretrustClaude(spec.cwd, opts.claudeConfig);
 			const node = opts.node ?? process.execPath;
+			// A worker's permission requests go to its parent (permit()); a root's stay with its user.
+			let permitSocket: string | undefined;
+			if (spec.parent) {
+				permitSocket = join(spec.runDir, "permit.sock");
+				if (Buffer.byteLength(permitSocket) > MAX_SOCKET_PATH)
+					throw new Error(`claude: socket path too long for a Unix socket (${permitSocket})`);
+				rmSync(permitSocket, { force: true });
+				const server = createServer(onPermitSocket);
+				permitServer = server;
+				await new Promise<void>((resolve, reject) => {
+					server.once("error", reject);
+					server.listen(permitSocket, () => resolve());
+				});
+				chmodSync(permitSocket, 0o600);
+			}
 			const model = spec.model ?? spec.profile.defaultModel;
 			const argv = [
 				"claude",
@@ -417,7 +564,7 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 				"-n",
 				spec.name,
 				"--settings",
-				claudeSettings(node, CLAUDE_HOOK, deps.depth),
+				claudeSettings(node, CLAUDE_HOOK, deps.depth, permitSocket),
 				// Folders outside cwd it may read without asking (READ_DIRS_ENV).
 				...(spec.readDirs ?? []).flatMap((d) => ["--add-dir", d]),
 			];
@@ -495,6 +642,10 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 		async close(): Promise<void> {
 			stop();
 			gone = true;
+			if (waitingTimer) clearTimeout(waitingTimer);
+			for (const p of permits.splice(0)) p.socket.destroy();
+			permitServer?.close();
+			permitServer = undefined;
 			if (pending) {
 				const p = pending;
 				pending = undefined;
@@ -504,6 +655,21 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 
 		onUpdate(listener) {
 			listeners.push(listener);
+		},
+
+		async answer(choice: string): Promise<{ answered: string } | { error: string }> {
+			const open = permits[0];
+			if (!open) return { error: "claude is not waiting on a permission agent-link can answer" };
+			const picked = pickChoices(open.ask, choice);
+			if ("error" in picked) return picked;
+			const out = open.outputs[picked.picks[0]?.[0] ?? 0];
+			if (!out) return { error: "no such option" };
+			permits.shift();
+			open.socket.end(`${out}\n`);
+			deps.log("answered", { question: open.ask.questions[0]?.question, choice });
+			answeredAt = Date.now();
+			reportPermit();
+			return { answered: pickedText(open.ask, picked.picks) };
 		},
 	};
 }

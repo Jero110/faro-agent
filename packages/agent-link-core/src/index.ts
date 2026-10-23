@@ -3,6 +3,7 @@ export { type CodexAdapterOptions, codexConfigArgs, createCodexAdapter } from ".
 export { createOpencodeAdapter, opencodeAdapter } from "./adapters/opencode.ts";
 export * from "./adapters/paste.ts";
 export { createPiAdapter, PI_EXTENSION_PATH, type PiAdapterOptions } from "./adapters/pi.ts";
+export * from "./ask.ts";
 export * from "./client.ts";
 export * from "./hub/daemon.ts";
 export * from "./hub/hub.ts";

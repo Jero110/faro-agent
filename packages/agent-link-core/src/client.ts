@@ -44,6 +44,12 @@ export interface HubClient {
 	}): Promise<ErrorOr<{ name: string }>>;
 	send(body: { from: string; to: string; message: string; id?: string }): Promise<SendResult>;
 	reply(body: { from: string; result: string }): Promise<{ ok: boolean; error?: string }>;
+	/** Answers the permission or question a worker waits on (Hub.permit). */
+	permit(body: {
+		from: string;
+		to: string;
+		choice: string;
+	}): Promise<{ ok: boolean; answered?: string; error?: string }>;
 	status(agent: string): Promise<{ agents: StatusEntry[]; error?: string }>;
 	/** Every agent of the hub, each root followed by its tree. */
 	agents(): Promise<{ agents: Array<StatusEntry & { backend?: BackendName; pane?: string; startedAt: number }> }>;
@@ -98,6 +104,7 @@ export function createHubClient(addr: HubAddress): HubClient {
 		spawn: (body) => call("POST", "/spawn", { read: readDirsFromEnv(), ...body }),
 		send: (body) => call("POST", "/send", body),
 		reply: (body) => call("POST", "/reply", body),
+		permit: (body) => call("POST", "/permit", body),
 		status: (agent) => call("GET", `/status${q(agent)}`),
 		agents: () => call("GET", "/agents"),
 		cancel: (body) => call("POST", "/cancel", body),
