@@ -250,9 +250,10 @@ export class Hub {
 				model: record.model,
 				cwd: record.cwd,
 				runRoot: this.opts.runRoot,
-				env: agentEnv(profile, identityEnv(this.identity(name, depth), this.opts.home)),
+				env: agentEnv(profile, identityEnv(this.identity(name, depth), this.opts.home), req.read),
 				mcp: this.opts.mcp?.[req.backend] ?? DEFAULT_MCP[req.backend],
 				profile,
+				readDirs: req.read,
 			});
 			agent.runDir = spec.runDir;
 			const cmd = await adapter.launch(spec);

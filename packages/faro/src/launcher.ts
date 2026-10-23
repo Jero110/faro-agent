@@ -10,8 +10,8 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { type RootOptions, runRoot } from "agent-link";
-import type { PaneCommand } from "agent-link-core";
-import { EXTENSIONS, type FaroPaths, faroPaths, PI_CLI } from "./paths.ts";
+import { type PaneCommand, READ_DIRS_ENV, readDirsFromEnv } from "agent-link-core";
+import { EXTENSIONS, type FaroPaths, faroPaths, PI_CLI, SKILLS_DIR } from "./paths.ts";
 import { ensureAgentDir, writeFaroProfile } from "./setup.ts";
 
 export interface LaunchOptions {
@@ -26,15 +26,27 @@ export interface LaunchOptions {
 	root?: (opts: RootOptions) => Promise<number>;
 }
 
+/**
+ * READ_DIRS_ENV with Faro's skills folder added: briefs name skills by absolute path, so every worker Faro
+ * opens, in any harness, may read them without a permission prompt.
+ */
+export function withSkillsDir(env: NodeJS.ProcessEnv): string {
+	const dirs = readDirsFromEnv(env);
+	return (dirs.includes(SKILLS_DIR) ? dirs : [...dirs, SKILLS_DIR]).join(":");
+}
+
 /** The pi command line for one Faro run. */
 export function piCommand(paths: FaroPaths, argv: readonly string[], env: NodeJS.ProcessEnv, cwd: string): PaneCommand {
 	return {
 		argv: [process.execPath, PI_CLI, ...EXTENSIONS.flatMap((e) => ["-e", e]), ...argv],
 		// Faro pins pi and updates it with its own install, so pi's "run pi update" notice would be wrong advice.
-		env: { ...env, PI_CODING_AGENT_DIR: paths.agentDir, FARO_HOME: paths.home, PI_SKIP_VERSION_CHECK: "1" } as Record<
-			string,
-			string
-		>,
+		env: {
+			...env,
+			PI_CODING_AGENT_DIR: paths.agentDir,
+			FARO_HOME: paths.home,
+			PI_SKIP_VERSION_CHECK: "1",
+			[READ_DIRS_ENV]: withSkillsDir(env),
+		} as Record<string, string>,
 		cwd,
 	};
 }
@@ -56,7 +68,7 @@ export async function runFaro(opts: LaunchOptions): Promise<number> {
 	const notes: string[] = [];
 	const code = await (opts.root ?? runRoot)({
 		argv: ["faro", ...opts.argv],
-		env: { ...env, PI_CODING_AGENT_DIR: paths.agentDir, FARO_HOME: paths.home },
+		env: { ...env, PI_CODING_AGENT_DIR: paths.agentDir, FARO_HOME: paths.home, [READ_DIRS_ENV]: withSkillsDir(env) },
 		cwd,
 		err: (l) => notes.push(l),
 		run: (cmd) => {

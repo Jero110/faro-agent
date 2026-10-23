@@ -17,7 +17,7 @@ import { Journal, readJournal } from "agent-link-core";
 import type { TranscriptRoots } from "agent-transcripts";
 import { answersText } from "../src/extensions/ask.ts";
 import { askContext, reviewInstructions } from "../src/extensions/workflow.ts";
-import { piCommand, runFaro } from "../src/launcher.ts";
+import { piCommand, runFaro, withSkillsDir } from "../src/launcher.ts";
 import { LOGO_WIDTH, logoLines } from "../src/logo.ts";
 import { EXTENSIONS, faroPaths, PI_CLI, SKILL_GROUP_DIRS, SKILLS_DIR } from "../src/paths.ts";
 import { ensureAgentDir, readConfig, setup, writeFaroProfile } from "../src/setup.ts";
@@ -158,6 +158,12 @@ test("as a root Faro registers with agent-link; when the hub cannot take it, it 
 	assert.equal(ran[0]?.[1], PI_CLI);
 	assert.ok(errs.some((l) => /running without agent-link/.test(l)));
 	assert.ok(errs.some((l) => /not reachable: boom/.test(l)));
+});
+
+test("Faro shares its skills folder with every worker, after any folders already shared", () => {
+	assert.equal(withSkillsDir({}), SKILLS_DIR);
+	assert.equal(withSkillsDir({ AGENT_LINK_READ_DIRS: "/refs" }), `/refs:${SKILLS_DIR}`);
+	assert.equal(withSkillsDir({ AGENT_LINK_READ_DIRS: SKILLS_DIR }), SKILLS_DIR, "not added twice");
 });
 
 test("piCommand keeps the user's arguments last", () => {

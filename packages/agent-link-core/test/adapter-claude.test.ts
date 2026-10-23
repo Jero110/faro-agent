@@ -27,7 +27,7 @@ async function until(cond: () => boolean, what: string, ms = 3000): Promise<void
 }
 
 /** A fake Claude: its home (sessions, key, transcript), its messaging socket and the adapter driving it. */
-async function fakeClaude(opts: { pid?: number; mcpInstalled?: boolean } = {}) {
+async function fakeClaude(opts: { pid?: number; mcpInstalled?: boolean; readDirs?: string[] } = {}) {
 	// Short root: the socket path must fit a Unix socket (104 bytes on macOS).
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "xlc-")));
 	const home = join(root, "h");
@@ -53,6 +53,7 @@ async function fakeClaude(opts: { pid?: number; mcpInstalled?: boolean } = {}) {
 		env: { AGENT_LINK_AGENT: "w1", AGENT_LINK_DEPTH: "1" },
 		mcp: { command: "/bin/xl", args: ["mcp"] },
 		profile: { harness: "claude", adapter: "claude", label: "Claude", defaultModel: "claude-haiku-5-5", dialogs: [] },
+		...(opts.readDirs ? { readDirs: opts.readDirs } : {}),
 	};
 	const cmd = await adapter.launch(spec);
 	const sessionId = cmd.argv[cmd.argv.indexOf("--session-id") + 1] ?? "";
@@ -146,6 +147,16 @@ function fakePane() {
 	};
 	return { backend, ref: "surface:1", keys };
 }
+
+test("claude launch: each shared read folder is an --add-dir, so reading a skill does not ask", async () => {
+	const c = await fakeClaude({ readDirs: ["/skills", "/refs"] });
+	try {
+		const at = c.cmd.argv.indexOf("--add-dir");
+		assert.deepEqual(c.cmd.argv.slice(at, at + 4), ["--add-dir", "/skills", "--add-dir", "/refs"]);
+	} finally {
+		await c.done();
+	}
+});
 
 test("claude launch: socket in a 0700 run dir, session id, name, guard hook with depth, MCP by flag", async () => {
 	const c = await fakeClaude();

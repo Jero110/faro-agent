@@ -157,6 +157,12 @@ test("opencode launch: TUI with the server on the port, the model, the MCP and t
 	assert.equal(cmd.env.AGENT_LINK_AGENT, "oc1");
 });
 
+test("opencode config allows the shared read folders outside cwd, and nothing else, up front", () => {
+	assert.equal(opencodeConfig(spec(), true).permission, undefined);
+	const config = opencodeConfig({ ...spec(), readDirs: ["/skills", "/refs"] }, true);
+	assert.deepEqual(config.permission, { external_directory: { "/skills/**": "allow", "/refs/**": "allow" } });
+});
+
 test("opencode config leaves out the MCP when agent-link is installed globally, keeps the guard", () => {
 	const config = opencodeConfig(spec(), true);
 	assert.equal(config.mcp, undefined);

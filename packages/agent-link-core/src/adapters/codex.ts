@@ -32,7 +32,7 @@ import type {
 	SessionUpdate,
 	StopReason,
 } from "../types.ts";
-import { IDENTITY_ENV, PLACE_ENV } from "../types.ts";
+import { IDENTITY_ENV, PLACE_ENV, READ_DIRS_ENV } from "../types.ts";
 
 /** The app-server process, as much of it as the adapter uses (tests give a fake). */
 export interface ServerProcess {
@@ -79,7 +79,7 @@ export function codexConfigArgs(spec: LaunchSpec, mcpInstalled: boolean): string
 			"-c",
 			`${key}.args=${toml(spec.mcp.args)}`,
 			"-c",
-			`${key}.env_vars=${toml([...Object.values(IDENTITY_ENV), ...PLACE_ENV])}`,
+			`${key}.env_vars=${toml([...Object.values(IDENTITY_ENV), READ_DIRS_ENV, ...PLACE_ENV])}`,
 			"-c",
 			`${key}.default_tools_approval_mode="approve"`,
 		);

@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createHubClient } from "../src/client.ts";
 import { placeOf } from "../src/hub/hub.ts";
 import { hubPaths } from "../src/paths.ts";
-import { IDENTITY_ENV } from "../src/types.ts";
+import { IDENTITY_ENV, READ_DIRS_ENV, readDirsFromEnv } from "../src/types.ts";
 import { echoResponder } from "./fakes/adapter.ts";
 import { fakeProfiles, pullRoot, spawned, type TestHub, testHub, waitFor } from "./fakes/hub.ts";
 
@@ -82,6 +82,16 @@ test("spawn: a profile's env reaches the harness, but cannot replace the identit
 			]),
 		},
 	));
+
+test("spawn: the caller's read folders reach the worker's spec and env, so its own workers get them too", () =>
+	withHub(async (t) => {
+		const root = await pullRoot(t.client);
+		await t.client.spawn({ from: root, harness: "opencode", task: "x", backend: "cmux", read: ["/skills", "/refs"] });
+		const fake = await waitFor(() => t.kit.byName("opencode"), "adapter");
+		assert.deepEqual(fake.spec?.readDirs, ["/skills", "/refs"]);
+		assert.equal(fake.spec?.env[READ_DIRS_ENV], "/skills:/refs");
+		assert.deepEqual(readDirsFromEnv({ [READ_DIRS_ENV]: "/skills::/refs" }), ["/skills", "/refs"]);
+	}));
 
 test("spawn errors say what exists: unknown harness, caller, backend; a failed pane closes the adapter", () =>
 	withHub(async (t) => {

@@ -88,6 +88,8 @@ export interface LaunchSpec {
 	/** How to start the agent-link MCP server, for harnesses where it must be passed by flag. */
 	mcp: { command: string; args: string[] };
 	profile: Profile;
+	/** Folders outside cwd the harness may read without asking (READ_DIRS_ENV). */
+	readDirs?: string[];
 }
 
 /** A pane an adapter may look at (dialogs) or type into (paste). */
@@ -202,6 +204,18 @@ export const IDENTITY_ENV = {
  * Env that tells an MCP server where its caller's pane is (see placeFromEnv). Codex passes only listed vars to
  * its MCP servers, so these go in its env_vars next to IDENTITY_ENV.
  */
+/**
+ * Folders outside its own cwd that an agent's workers may read without a permission prompt, joined with ":".
+ * Example: Faro sets its skills folder, so an opencode worker can read the SKILL.md its brief names.
+ * The client adds them to every spawn, and the hub hands them on to the worker, so they reach every depth.
+ */
+export const READ_DIRS_ENV = "AGENT_LINK_READ_DIRS";
+
+/** The folders in READ_DIRS_ENV. */
+export function readDirsFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
+	return (env[READ_DIRS_ENV] ?? "").split(":").filter((d) => d.trim() !== "");
+}
+
 export const PLACE_ENV = ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "TMUX", "TMUX_PANE"] as const;
 
 export interface Identity {

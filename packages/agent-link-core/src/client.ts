@@ -9,7 +9,7 @@ import type { SendResult } from "./hub/queue.ts";
 import { socketAnswers, TOKEN_HEADER } from "./hub/server.ts";
 import { agentLinkHome, hubPaths } from "./paths.ts";
 import type { BackendName, Identity, PaneCommand, PlaceHint } from "./types.ts";
-import { IDENTITY_ENV } from "./types.ts";
+import { IDENTITY_ENV, readDirsFromEnv } from "./types.ts";
 
 export interface HubAddress {
 	socket: string;
@@ -38,6 +38,8 @@ export interface HubClient {
 		cwd?: string;
 		backend: BackendName;
 		place?: PlaceHint;
+		/** Default: the caller's READ_DIRS_ENV. */
+		read?: string[];
 	}): Promise<ErrorOr<{ name: string }>>;
 	send(body: { from: string; to: string; message: string; id?: string }): Promise<SendResult>;
 	reply(body: { from: string; result: string }): Promise<{ ok: boolean; error?: string }>;
@@ -92,7 +94,7 @@ export function createHubClient(addr: HubAddress): HubClient {
 
 	return {
 		register: (body) => call("POST", "/agents", { parent: null, ...body }),
-		spawn: (body) => call("POST", "/spawn", body),
+		spawn: (body) => call("POST", "/spawn", { read: readDirsFromEnv(), ...body }),
 		send: (body) => call("POST", "/send", body),
 		reply: (body) => call("POST", "/reply", body),
 		status: (agent) => call("GET", `/status${q(agent)}`),

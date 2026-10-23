@@ -3,7 +3,7 @@
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AdapterFactory, BackendName, LaunchSpec, PaneBackend, Profile } from "../types.ts";
-import { IDENTITY_ENV } from "../types.ts";
+import { IDENTITY_ENV, READ_DIRS_ENV } from "../types.ts";
 import type { Agent } from "./registry.ts";
 
 export interface SpawnRequest {
@@ -15,6 +15,8 @@ export interface SpawnRequest {
 	cwd?: string;
 	backend: BackendName;
 	place?: { workspace?: string; surface?: string; tmuxPane?: string };
+	/** Folders outside cwd the worker may read (READ_DIRS_ENV). */
+	read?: string[];
 }
 
 /** How the agent-link MCP server starts, per backend. */
@@ -75,8 +77,12 @@ export function identityEnv(
 }
 
 /** The env a harness launches with: its profile's env, then the identity, which always wins. */
-export function agentEnv(profile: Profile, identity: Record<string, string>): Record<string, string> {
-	return { ...profile.env, ...identity };
+export function agentEnv(
+	profile: Profile,
+	identity: Record<string, string>,
+	readDirs: readonly string[] = [],
+): Record<string, string> {
+	return { ...profile.env, ...(readDirs.length ? { [READ_DIRS_ENV]: readDirs.join(":") } : {}), ...identity };
 }
 
 /** Creates the agent's private run folder (0700) and the spec the adapter launches it with. */
@@ -89,6 +95,7 @@ export function launchSpec(input: {
 	env: Record<string, string>;
 	mcp: { command: string; args: string[] };
 	profile: Profile;
+	readDirs?: string[];
 }): LaunchSpec {
 	const runDir = join(input.runRoot, input.name);
 	mkdirSync(runDir, { recursive: true, mode: 0o700 });
@@ -101,6 +108,7 @@ export function launchSpec(input: {
 		env: input.env,
 		mcp: input.mcp,
 		profile: input.profile,
+		...(input.readDirs?.length ? { readDirs: input.readDirs } : {}),
 	};
 }
 

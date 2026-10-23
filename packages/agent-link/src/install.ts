@@ -25,6 +25,7 @@ export const IDENTITY_VARS = [
 	"AGENT_LINK_TOKEN",
 	"AGENT_LINK_DEPTH",
 	"AGENT_LINK_HOME",
+	"AGENT_LINK_READ_DIRS",
 ] as const;
 
 /**

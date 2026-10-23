@@ -198,6 +198,7 @@ async function handle(hub: Hub, token: string, req: IncomingMessage, res: Server
 					cwd: opt("cwd"),
 					backend,
 					place,
+					read: Array.isArray(body.read) ? body.read.filter((d): d is string => typeof d === "string") : undefined,
 				}),
 			);
 		}

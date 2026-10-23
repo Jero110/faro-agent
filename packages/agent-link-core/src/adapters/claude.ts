@@ -418,6 +418,8 @@ export function createClaudeAdapter(deps: AdapterDeps, opts: ClaudeOptions = {})
 				spec.name,
 				"--settings",
 				claudeSettings(node, CLAUDE_HOOK, deps.depth),
+				// Folders outside cwd it may read without asking (READ_DIRS_ENV).
+				...(spec.readDirs ?? []).flatMap((d) => ["--add-dir", d]),
 			];
 			const installed = await (opts.mcpInstalled ?? claudeMcpInstalled)();
 			if (!installed) {

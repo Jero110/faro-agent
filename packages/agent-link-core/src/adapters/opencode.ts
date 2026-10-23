@@ -56,6 +56,16 @@ export function opencodeConfig(spec: LaunchSpec, mcpInstalled: boolean): Record<
 				}),
 		// Blocks risky bash commands for workers (AGENT_LINK_DEPTH >= 1).
 		plugin: [OPENCODE_GUARD_PLUGIN],
+		// Problem: opencode asks before it touches a path outside its cwd. Example: a worker told to read
+		// <skills>/build/source-driven-development/SKILL.md stopped at that prompt, and only a person in its pane
+		// could answer. Solution: the folders its caller may share are allowed up front.
+		...(spec.readDirs?.length
+			? {
+					permission: {
+						external_directory: Object.fromEntries(spec.readDirs.map((d) => [`${d}/**`, "allow"])),
+					},
+				}
+			: {}),
 	};
 }
 

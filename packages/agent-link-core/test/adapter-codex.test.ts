@@ -79,7 +79,7 @@ test("config args: model, and the agent-link MCP server with env_vars and approv
 		"-c",
 		'mcp_servers.agent-link.args=["mcp","--backend","cmux"]',
 		"-c",
-		'mcp_servers.agent-link.env_vars=["AGENT_LINK_AGENT","AGENT_LINK_HUB","AGENT_LINK_TOKEN","AGENT_LINK_DEPTH","AGENT_LINK_HOME","CMUX_WORKSPACE_ID","CMUX_SURFACE_ID","TMUX","TMUX_PANE"]',
+		'mcp_servers.agent-link.env_vars=["AGENT_LINK_AGENT","AGENT_LINK_HUB","AGENT_LINK_TOKEN","AGENT_LINK_DEPTH","AGENT_LINK_HOME","AGENT_LINK_READ_DIRS","CMUX_WORKSPACE_ID","CMUX_SURFACE_ID","TMUX","TMUX_PANE"]',
 		"-c",
 		'mcp_servers.agent-link.default_tools_approval_mode="approve"',
 	]);
