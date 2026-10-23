@@ -53,5 +53,5 @@ Useful skills the user invokes by hand when needed. They never run on their own.
 | [`code-review-and-quality`](extras/code-review-and-quality/SKILL.md) | Addy | Review changes for defects, risks and maintainability. |
 | [`debugging-and-error-recovery`](extras/debugging-and-error-recovery/SKILL.md) | Addy | Find the root cause of failures and improve recovery. |
 | [`code-simplification`](extras/code-simplification/SKILL.md) | Addy | Reduce complexity without changing behavior. |
-| [`impeccable`](https://github.com/pbakaus/impeccable) | Paul Bakaus | Improve frontend design and visual quality: critique, polish, typography, layout, motion. Install in a project with `npx impeccable install`. |
+| [`impeccable`](extras/impeccable/SKILL.md) | Paul Bakaus | Improve frontend design and visual quality: critique, polish, typography, layout, motion. |
 

@@ -218,12 +218,9 @@
 			"name": "impeccable",
 			"group": "extras",
 			"author": "Paul Bakaus",
-			"source": "pbakaus/impeccable",
+			"source": "pbakaus/impeccable/.agents/skills/impeccable",
 			"license": "Apache-2.0",
-			"summary": "Improve frontend design and visual quality: critique, polish, typography, layout, motion.",
-			"external": {
-				"install": "npx impeccable install"
-			}
+			"summary": "Improve frontend design and visual quality: critique, polish, typography, layout, motion."
 		}
 	]
 }

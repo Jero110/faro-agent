@@ -193,7 +193,7 @@ Four groups. Pre-build and build run inside the workflow; post-build and extras 
 | **Pre-build** | `planner` (Faro), `grilling` (Matt Pocock): the grill-me step |
 | **Build** | `executor` (Faro); development skills (Addy): `test-driven-development`, `spec-driven-development`, `source-driven-development`, `security-and-hardening`, `performance-optimization`, `doubt-driven-development`, `constraint-driven-development`, `documentation-and-adrs`, `observability-and-instrumentation`, `incremental-implementation`, `git-workflow-and-versioning`, `ci-cd-and-automation` |
 | **Post-build** | `shipping-and-launch` (Addy), `handoff` (Matt Pocock) |
-| **Extras** | `api-and-interface-design`, `browser-testing-with-devtools`, `code-review-and-quality`, `debugging-and-error-recovery`, `code-simplification` (Addy); `impeccable` (Paul Bakaus, installed with `npx impeccable install`) |
+| **Extras** | `api-and-interface-design`, `browser-testing-with-devtools`, `code-review-and-quality`, `debugging-and-error-recovery`, `code-simplification` (Addy); `impeccable` (Paul Bakaus) |
 
 How skills load:
 

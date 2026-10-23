@@ -25,7 +25,7 @@ export interface CatalogSkill {
 	source: string;
 	license: string;
 	summary: string;
-	/** Installed by its own installer instead of shipped in skills/ (Impeccable). */
+	/** Installed by its own installer instead of shipped in skills/. */
 	external?: { install: string };
 	/** For build skills: the planner offers it when the work fits. */
 	offerWhen?: string;
