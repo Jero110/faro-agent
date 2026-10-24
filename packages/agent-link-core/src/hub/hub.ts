@@ -328,8 +328,8 @@ export class Hub {
 	/**
 	 * Closes an agent that handed off, alone, once the agent that takes over runs and its own turn has ended.
 	 * Problem: a planner that handed the plan to an executor stayed open next to it, and closing it closed its
-	 * whole tree. Example: the executor and its workers squeezed into half a screen, then moved to another
-	 * workspace because the splits were too small. Solution: spawn with handoff marks the caller; when the new agent
+	 * whole tree. Example: the executor and its workers squeezed into half a screen next to the planner.
+	 * Solution: spawn with handoff marks the caller; when the new agent
 	 * is connected and the caller is idle, the caller closes with its pane (a root's terminal too) and its tree
 	 * goes on. Messages to it from then on are dropped, as for any agent that exited.
 	 */

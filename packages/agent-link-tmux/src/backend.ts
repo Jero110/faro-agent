@@ -6,12 +6,10 @@
 // tmux's main-vertical layout with the main pane at half the width: the first pane (the executor, once the planner
 // handed off and closed) on the left at full height, the others stacked on the right at even heights.
 //
-// Problem: a split in a crowded window can be too small for a harness TUI. Example: opencode 1.19.3 segfaults
-// (Bun panic) in a 22x7 pane. Solution: the pane first runs a gate that waits for its launch script; once the
-// layout is applied the backend reads the pane's size (#{pane_width}, #{pane_height}) and, under 40x13, kills the
-// pane before the harness ever starts (a second start would reuse a Claude --session-id or an opencode port) and
-// opens the agent in a new window right after the caller's window, in the caller's session. Then the launch script
-// appears and the gate runs it.
+// Problem: agents used to move to another tmux window when a split was small. Example: an executor's workers opened
+// in a window after the caller's while the user watched the first one, and the user lost them. Solution: agents
+// always open in the caller's window and never move; resizing and moving panes is the agents' job, with tmux or the
+// cmux MCP.
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -38,8 +36,6 @@ export interface TmuxBackendOptions {
 	/** Where launch scripts go (tests). */
 	launchDir?: string;
 	timeoutMs?: number;
-	/** Smallest pane an agent may run in. Default 40x13. */
-	minSize?: { cols: number; rows: number };
 }
 
 /** A pane command that waits (up to 60 s) for the launch script at path to exist, then execs it. */
@@ -89,7 +85,6 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 	const session = opts.session ?? "agent-link";
 	const timeout = opts.timeoutMs ?? 10_000;
 	const launchDir = opts.launchDir ?? DEFAULT_LAUNCH_DIR;
-	const min = opts.minSize ?? { cols: 40, rows: 13 };
 
 	// Problem: pane ids are unique only within one tmux server. Example: two servers on sockets a and b both
 	// answered `new-session -P -F '#{pane_id}'` with %0, so a pane id alone could send keys to the wrong pane.
@@ -172,18 +167,11 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 		} catch {}
 	}
 
-	async function small(socket: string | undefined, pane: string): Promise<boolean> {
-		const out = await tmux(socket, ["display-message", "-p", "-t", pane, "#{pane_width} #{pane_height}"]);
-		const [cols, rows] = out.trim().split(/\s+/).map(Number);
-		return !!cols && !!rows && (cols < min.cols || rows < min.rows);
-	}
-
 	const backend: PaneBackend = {
 		name: "tmux",
 		async open(cmd: PaneCommand, o: { title: string; place?: PlaceHint }) {
 			// The gate execs the launch script, which execs the harness: the pane closes when the harness exits.
-			const gatePath = () => join(launchDir, `${randomBytes(8).toString("hex")}.go`);
-			let path = gatePath();
+			const path = join(launchDir, `${randomBytes(8).toString("hex")}.go`);
 			const command = gateCommand(path);
 			const socket = o.place?.tmuxSocket;
 			const key = `${socket ?? ""}|${o.place?.tmuxPane ?? ""}`;
@@ -205,25 +193,15 @@ export function createTmuxBackend(opts: TmuxBackendOptions = {}): PaneBackend {
 						"split-window",
 					)
 				: await first(command, o.place);
-			// Only a split can be too small: a new session or window has the whole window.
 			const from = below ? parse(below).pane : o.place?.tmuxPane;
-			let id = pane;
 			if (from) await arrange(socket, pane);
-			if (from && (await small(socket, pane))) {
-				await tmux(socket, ["kill-pane", "-t", pane]);
-				path = gatePath();
-				// new-window takes a window, not a pane ("can't specify pane here"): the window holding `from`.
-				const win = (await tmux(socket, ["display-message", "-p", "-t", from, "#{window_id}"])).trim();
-				const args = ["new-window", "-d", "-a", "-t", win, "-P", "-F", "#{pane_id}", gateCommand(path)];
-				id = paneId(await tmux(socket, args), "new-window");
-			}
 			renameSync(writeLaunchScript(cmd, launchDir), path);
-			const ref = socket ? `${id}@${socket}` : id;
+			const ref = socket ? `${pane}@${socket}` : pane;
 			stacks.set(key, [...stack, ref]);
 			// The harness would retitle its pane with an escape sequence; the title stays the agent's.
-			await tmux(socket, ["set-option", "-p", "-t", id, "allow-set-title", "off"]);
-			await tmux(socket, ["select-pane", "-t", id, "-T", o.title]);
-			await tmux(socket, ["set-option", "-w", "-t", id, "pane-border-status", "top"]);
+			await tmux(socket, ["set-option", "-p", "-t", pane, "allow-set-title", "off"]);
+			await tmux(socket, ["select-pane", "-t", pane, "-T", o.title]);
+			await tmux(socket, ["set-option", "-w", "-t", pane, "pane-border-status", "top"]);
 			return ref;
 		},
 		async close(ref) {

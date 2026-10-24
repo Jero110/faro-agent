@@ -1,39 +1,16 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, test } from "node:test";
+import { test } from "node:test";
 import type { PaneCommand } from "agent-link-core";
-import { createCmuxBackend, gateCommand, OVERFLOW_WORKSPACE } from "../src/backend.ts";
-import { type FakeCli, fakeCli } from "./fake-cli.ts";
+import { createCmuxBackend, gateCommand } from "../src/backend.ts";
+import { fakeCli } from "./fake-cli.ts";
 
 const CMD: PaneCommand = { argv: ["cat"], env: { AGENT_LINK_TOKEN: "secret" }, cwd: "/tmp" };
 const PLACE = { workspace: "workspace:9", surface: "surface:1" };
 
-const OPENS = ["new-split", "new-surface", "new-workspace"];
-
-/**
- * Plays the panes' gates: each pane the fake opens reports the next size of `sizes` ("rows cols", default
- * 40 120) in <gate>.size, as the gate does with `stty size`.
- */
-function gates(fake: FakeCli, sizes: string[] = []) {
-	let seen = 0;
-	const timer = setInterval(() => {
-		const opens = fake.calls().filter((c) => OPENS.includes(c[0] ?? ""));
-		for (; seen < opens.length; seen++) {
-			const path = opens[seen]?.join(" ").match(/\/\S+?\.go\b/)?.[0];
-			// The fake CLI may still be writing this call's log line; read it again on the next tick.
-			// Problem: skipping it left that pane without a size, and the backend waited out its timeout.
-			if (!path) break;
-			// Written whole and renamed, as the gate does, so the backend never reads half a file.
-			writeFileSync(`${path}.tmp`, `${sizes[seen] ?? "40 120"}\n`);
-			renameSync(`${path}.tmp`, `${path}.size`);
-		}
-	}, 5);
-	return () => clearInterval(timer);
-}
-
-function setup(responses: Record<string, string> = {}, sizes: string[] = []) {
+function setup(responses: Record<string, string> = {}) {
 	const fake = fakeCli("cmux", {
 		"new-split.1": "OK surface:11 workspace:9\n",
 		"new-split.2": "OK surface:12 workspace:9\n",
@@ -44,9 +21,7 @@ function setup(responses: Record<string, string> = {}, sizes: string[] = []) {
 	const launchDir = mkdtempSync(join(tmpdir(), "xi-cmux-launch-"));
 	// The hub may have inherited a pane's identity; none of it may reach a cmux call.
 	const env = { ...fake.env, CMUX_SURFACE_ID: "surface:999", CMUX_WORKSPACE_ID: "workspace:999" };
-	const stop = gates(fake, sizes);
-	after(stop);
-	return { fake, launchDir, backend: createCmuxBackend({ env, launchDir, sizeTimeoutMs: 2000 }) };
+	return { fake, launchDir, backend: createCmuxBackend({ env, launchDir }) };
 }
 
 test("the first worker opens right of the caller, the next ones below the previous, titled, never focused", async () => {
@@ -140,17 +115,33 @@ test("alive follows read-screen; closing a surface that is already gone is not a
 	await assert.rejects(live.close("surface:5"), /something else/);
 });
 
-test("a full workspace opens the worker in the agent-link workspace, never as a tab", async () => {
+test("a full split retries from the other panes of the same workspace, never another workspace or a tab", async () => {
 	const { fake, backend } = setup({
-		"new-split.1.err": "Error: no_space: No space for new pane\n",
-		"new-workspace": "OK workspace:30\n",
-		tree: JSON.stringify({
-			windows: [{ workspaces: [{ ref: "workspace:30", panes: [{ surface_refs: ["surface:30"] }] }] }],
-		}),
+		"new-split.2.err": "Error: no_space: No space for new pane\n",
+		"new-split.3": "OK surface:12 workspace:9\n",
 	});
-	assert.equal(await backend.open(CMD, { title: "a", place: PLACE }), "surface:30");
+	assert.equal(await backend.open(CMD, { title: "a", place: PLACE }), "surface:11");
+	assert.equal(await backend.open(CMD, { title: "b", place: PLACE }), "surface:12");
+	const calls = fake.calls();
+	assert.deepEqual(
+		calls.filter((c) => c[0] === "new-split").map((c) => [c[1], c[3], c[5]]),
+		[
+			["right", "workspace:9", "surface:1"],
+			["down", "workspace:9", "surface:11"],
+			["right", "workspace:9", "surface:1"],
+		],
+	);
 	assert.equal(
-		fake.calls().some((c) => c[0] === "new-surface"),
+		calls.some((c) => c[0] === "new-surface" || c[0] === "new-workspace"),
+		false,
+	);
+});
+
+test("when no pane of the workspace has room the open fails clearly and opens nothing elsewhere", async () => {
+	const { fake, backend } = setup({ "new-split.1.err": "Error: no_space: No space for new pane\n" });
+	await assert.rejects(backend.open(CMD, { title: "a", place: PLACE }), /no room for another agent pane/);
+	assert.equal(
+		fake.calls().some((c) => c[0] === "new-surface" || c[0] === "new-workspace"),
 		false,
 	);
 });
@@ -186,113 +177,4 @@ test("closing a surface it did not open (a root's own terminal) finds its worksp
 test("open without the caller's surface fails instead of guessing", async () => {
 	const { backend } = setup();
 	await assert.rejects(backend.open(CMD, { title: "a" }), /place.surface/);
-});
-
-test("a split under 40x13 is closed before its harness starts; the agent opens in the agent-link workspace", async () => {
-	const { fake, backend } = setup(
-		{
-			"new-split.1": "OK surface:11 workspace:9\n",
-			"new-split.2": "OK surface:12 workspace:30\n",
-			"new-split.3": "OK surface:13 workspace:9\n",
-			"new-split.4": "OK surface:31 workspace:30\n",
-			"new-workspace": "OK workspace:30\n",
-			tree: JSON.stringify({
-				windows: [{ workspaces: [{ ref: "workspace:30", panes: [{ surface_refs: ["surface:30"] }] }] }],
-			}),
-		},
-		["16 26", "50 200", "50 200", "16 26", "50 200"],
-	);
-	assert.equal(await backend.open(CMD, { title: "a", place: PLACE }), "surface:30");
-	const calls = fake.calls();
-	const close = calls.find((c) => c[0] === "close-surface");
-	assert.deepEqual(close, ["close-surface", "--workspace", "workspace:9", "--surface", "surface:11", "--force"]);
-	const ws = calls.find((c) => c[0] === "new-workspace");
-	assert.deepEqual(ws?.slice(0, 5), ["new-workspace", "--name", OVERFLOW_WORKSPACE, "--focus", "false"]);
-	assert.deepEqual(
-		calls.find((c) => c[0] === "tree"),
-		["tree", "--json", "--workspace", "workspace:30"],
-	);
-	// The closed split never got its launch script; the accepted pane did.
-	const gate = (c?: string[]) => c?.join(" ").match(/\/\S+?\.go\b/)?.[0] ?? "";
-	assert.equal(existsSync(gate(calls.find((c) => c[0] === "new-split"))), false);
-	assert.equal(existsSync(gate(ws)), true);
-	// The next agent of the same caller stacks below it in the agent-link workspace, which is reused.
-	assert.equal(await backend.open(CMD, { title: "b", place: PLACE }), "surface:12");
-	const second = fake.calls().filter((c) => c[0] === "new-split")[1];
-	assert.deepEqual(second?.slice(0, 6), [
-		"new-split",
-		"down",
-		"--workspace",
-		"workspace:30",
-		"--surface",
-		"surface:30",
-	]);
-	// Another caller in the crowded workspace reuses the same agent-link workspace too.
-	assert.equal(await backend.open(CMD, { title: "c", place: { ...PLACE, surface: "surface:2" } }), "surface:31");
-	const calls3 = fake.calls();
-	assert.equal(calls3.filter((c) => c[0] === "new-workspace").length, 1);
-	assert.deepEqual(calls3.filter((c) => c[0] === "new-split")[3]?.slice(0, 6), [
-		"new-split",
-		"down",
-		"--workspace",
-		"workspace:30",
-		"--surface",
-		"surface:12",
-	]);
-});
-
-test("a split in the agent-link workspace that is still small stays there: no tab, no second move", async () => {
-	const { fake, backend } = setup(
-		{
-			"new-split.1": "OK surface:11 workspace:9\n",
-			"new-split.2": "OK surface:31 workspace:30\n",
-			"new-workspace": "OK workspace:30\n",
-			tree: JSON.stringify({
-				windows: [{ workspaces: [{ ref: "workspace:30", panes: [{ surface_refs: ["surface:30"] }] }] }],
-			}),
-		},
-		["10 26", "50 200", "10 30"],
-	);
-	await backend.open(CMD, { title: "a", place: PLACE });
-	assert.equal(await backend.open(CMD, { title: "b", place: PLACE }), "surface:31");
-	const calls = fake.calls();
-	assert.equal(calls.filter((c) => c[0] === "close-surface").length, 1, "only the first, too-small split closed");
-	assert.equal(
-		calls.some((c) => c[0] === "new-surface"),
-		false,
-	);
-});
-
-test("closing the last agent of the agent-link workspace makes the next overflow create a new one", async () => {
-	const { fake, backend } = setup(
-		{
-			"new-workspace.1": "OK workspace:30\n",
-			"new-workspace.2": "OK workspace:40\n",
-			"tree.1": JSON.stringify({
-				windows: [{ workspaces: [{ ref: "workspace:30", panes: [{ surface_refs: ["surface:30"] }] }] }],
-			}),
-			"tree.2": JSON.stringify({
-				windows: [{ workspaces: [{ ref: "workspace:40", panes: [{ surface_refs: ["surface:40"] }] }] }],
-			}),
-		},
-		["16 26", "50 200", "16 26", "50 200"],
-	);
-	assert.equal(await backend.open(CMD, { title: "a", place: PLACE }), "surface:30");
-	// cmux refuses to close a workspace's last surface: the last agent closes with its workspace.
-	await backend.close("surface:30");
-	const closes = fake.calls().filter((c) => c[0]?.startsWith("close-"));
-	assert.deepEqual(closes.at(-1), ["close-workspace", "--workspace", "workspace:30", "--force"]);
-	assert.equal(await backend.open(CMD, { title: "b", place: PLACE }), "surface:40");
-	assert.equal(fake.calls().filter((c) => c[0] === "new-workspace").length, 2);
-});
-
-test("a pane that reports no size in time is kept", async () => {
-	const fake = fakeCli("cmux", { "new-split": "OK surface:11 workspace:9\n" });
-	const launchDir = mkdtempSync(join(tmpdir(), "xi-cmux-launch-"));
-	const backend = createCmuxBackend({ env: fake.env, launchDir, sizeTimeoutMs: 100 });
-	assert.equal(await backend.open(CMD, { title: "a", place: PLACE }), "surface:11");
-	assert.equal(
-		fake.calls().some((c) => c[0] === "close-surface"),
-		false,
-	);
 });

@@ -38,8 +38,10 @@ extensions.
 - **Pane backends**: open, close, read, keys, paste, alive. A caller's workers form one column to its right (the
   first split right of it, each next one below the last still open), never stealing focus and never as tabs; after
   every open and close the layout evens out (cmux `workspace.equalize_splits`, tmux `main-vertical` with the main pane
-  at half the width). Opens run one at a time, so parallel spawns stack. A pane under 40x13, the least the harness
-  TUIs run in, opens in an "agent-link" workspace (cmux) or a new window after the caller's (tmux) instead.
+  at half the width). Opens run one at a time, so parallel spawns stack. A worker always stays in the caller's
+  workspace (cmux) or window (tmux), however small its pane: a split that does not fit is retried from the other panes
+  there, and the open fails clearly when none does. Agents resize and move panes with the cmux MCP (`resize_pane`,
+  `move_surface`, `swap_pane`).
 - **Handoff**: `spawn` with `handoff: true` (the planner opening the executor) closes the caller once the new agent is
   connected and the caller's turn has ended, with its pane (a root's own terminal too), while the new agent and its
   workers go on.

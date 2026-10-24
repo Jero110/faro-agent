@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -43,8 +43,7 @@ test("inside tmux: the first worker splits right of the caller, the next ones be
 	assert.equal(command, gateCommand(gate));
 	assert.doesNotMatch(command, /secret/);
 	assert.match(readFileSync(gate, "utf8"), /AGENT_LINK_TOKEN=secret/);
-	assert.deepEqual(calls[1], ["display-message", "-p", "-t", "%11", "#{pane_width} #{pane_height}"]);
-	assert.deepEqual(calls.filter((c) => !["split-window", "display-message"].includes(c[0] ?? "")).slice(0, 3), [
+	assert.deepEqual(calls.filter((c) => c[0] !== "split-window").slice(0, 3), [
 		["set-option", "-p", "-t", "%11", "allow-set-title", "off"],
 		["select-pane", "-t", "%11", "-T", "Claude · a"],
 		["set-option", "-w", "-t", "%11", "pane-border-status", "top"],
@@ -131,8 +130,8 @@ test("a place with tmuxSocket opens there, and every later call on that pane use
 	assert.ok(calls.every((c) => c[0] === "-S" && c[1] === "/tmp/tmux-503/work"));
 	const cmds = noLayout(calls).map((c) => c.slice(2));
 	assert.deepEqual(cmds[0]?.slice(0, 5), ["split-window", "-d", "-h", "-t", "%1"]);
-	assert.deepEqual(cmds[5]?.slice(0, 5), ["split-window", "-d", "-v", "-t", "%3"]);
-	const rest = cmds.slice(10).map((c) => c.filter((x) => !x.startsWith("agent-link-")));
+	assert.deepEqual(cmds[4]?.slice(0, 5), ["split-window", "-d", "-v", "-t", "%3"]);
+	const rest = cmds.slice(8).map((c) => c.filter((x) => !x.startsWith("agent-link-")));
 	assert.deepEqual(rest, [
 		["capture-pane", "-p", "-J", "-t", "%3", "-S", "-3"],
 		["send-keys", "-t", "%3", "Enter"],
@@ -164,46 +163,27 @@ test("the same pane id on two servers stays two panes, each stacked on its own s
 	await assert.rejects(backend.read("nonsense"), /bad pane ref/);
 });
 
-test("a split under 40x13 is killed before its harness starts; the agent opens in a new window after the caller's", async () => {
-	const { fake, backend } = setup({
-		"display-message.1": "40 12\n",
-		"display-message.2": "@5\n",
-		"display-message.3": "120 40\n",
-		"new-window": "%20\n",
-	});
+test("a small split stays in the caller's window: it is never killed or moved to another window", async () => {
+	const { fake, backend } = setup({ "display-message": "10 5\n" });
 	const place = { tmuxPane: "%3" };
-	assert.equal(await backend.open(CMD, { title: "a", place }), "%20");
-	const calls = noLayout(fake.calls());
-	assert.deepEqual(calls[2], ["kill-pane", "-t", "%11"]);
-	assert.deepEqual(calls[3], ["display-message", "-p", "-t", "%3", "#{window_id}"]);
-	assert.deepEqual(calls[4]?.slice(0, -1), ["new-window", "-d", "-a", "-t", "@5", "-P", "-F", "#{pane_id}"]);
-	const gate = (c?: string[]) => c?.at(-1)?.match(/\/\S+?\.go\b/)?.[0] ?? "";
-	// The killed split never got its launch script; the new window did.
-	assert.equal(existsSync(gate(calls[0])), false);
-	assert.match(readFileSync(gate(calls[4]), "utf8"), /AGENT_LINK_TOKEN=secret/);
-	assert.deepEqual(calls[5], ["set-option", "-p", "-t", "%20", "allow-set-title", "off"]);
-	// The next worker of the same caller stacks below it in that window.
+	assert.equal(await backend.open(CMD, { title: "a", place }), "%11");
 	assert.equal(await backend.open(CMD, { title: "b", place }), "%12");
-	assert.deepEqual(
-		fake
-			.calls()
-			.filter((c) => c[0] === "split-window")[1]
-			?.slice(0, 5),
-		["split-window", "-d", "-v", "-t", "%20"],
-	);
-});
-
-test("a new session or window is not size-checked: it has the whole window", async () => {
-	const { fake, backend } = setup({ "has-session.err": "no", "new-session": "%0\n", "display-message": "10 5\n" });
-	assert.equal(await backend.open(CMD, { title: "a" }), "%0");
+	const calls = fake.calls();
 	assert.equal(
-		fake.calls().some((c) => c[0] === "kill-pane"),
+		calls.some((c) => c[0] === "kill-pane" || c[0] === "new-window"),
 		false,
+	);
+	assert.deepEqual(
+		calls.filter((c) => c[0] === "split-window").map((c) => c.slice(0, 5)),
+		[
+			["split-window", "-d", "-h", "-t", "%3"],
+			["split-window", "-d", "-v", "-t", "%11"],
+		],
 	);
 });
 
 test("the caller's window keeps one column right of the first pane: main-vertical after every split and close", async () => {
-	const { fake, backend } = setup({ "display-message.3": "@7\n" });
+	const { fake, backend } = setup({ "display-message.1": "@7\n" });
 	const place = { tmuxPane: "%3" };
 	await backend.open(CMD, { title: "a", place });
 	await backend.open(CMD, { title: "b", place });
