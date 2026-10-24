@@ -1,15 +1,15 @@
 // /workflow review and /workflow ask: Faro looking at its own workflow.
 //
 // review: rebuilds the last run from disk (agent-link journal + transcripts), writes a report of what ran,
-//   with which skills, tokens and time by role, harness, agent and message, then asks the model in this
-//   session for recommendations grounded in that report.
+//   with which skills, tokens and time by role, harness, agent and message, and prints only the paths of the
+//   report and the plan.
 // ask: gives the model the architecture, the skills catalog and what is installed here, then the question.
-// The report is computed, never guessed: the model only writes the recommendations and the answers.
+// The report is computed, never guessed.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { agentLinkHome, hubPaths, readJournal } from "agent-link-core";
-import { faroPaths, PI_PACKAGE, REPO_ROOT, SKILLS_DIR } from "../paths.ts";
+import { faroPaths, PI_PACKAGE, REPO_ROOT } from "../paths.ts";
 import { readConfig } from "../setup.ts";
 import { catalogMarkdown, readCatalog } from "../workflow/catalog.ts";
 import { renderReport } from "../workflow/report.ts";
@@ -19,18 +19,15 @@ export const MESSAGE_TYPE = "faro-workflow";
 
 export const USAGE = "usage: /workflow review [--last] | /workflow ask <question>";
 
-export function reviewInstructions(reportFile: string, plan: string | undefined): string {
-	return [
-		`The report above is computed from the transcripts (saved at ${reportFile}). Now:`,
-		"1. Summarize in 3-5 lines what this run did: tasks, which agent and harness did each, the skills used.",
-		"   When you give token counts, use new tokens; name cache reads separately, as context read again, never as one sum.",
-		"2. Write up to 5 recommendations to improve the workflow. Look at: skills that helped, were assigned but not loaded, or were missing;",
-		"   task split and parallelism; harness and model per task; brief quality (questions back, retries, tool errors); time and token waste",
-		"   (slow answers, large inputs, idle waits). For each: the change, the evidence (agent name and message #), and where to change it",
-		`   (a skill under ${SKILLS_DIR}, the plan${plan ? ` ${plan}` : ""}, or the executor's choices).`,
-		`3. Append both to ${reportFile} as "## Summary" and "## Recommendations", so the saved report has them. Edit no other file.`,
-		`The skills catalog is ${join(SKILLS_DIR, "catalog.json")}; read a skill or the plan when a recommendation depends on it.`,
-	].join("\n");
+/**
+ * What /workflow review prints: the paths of the two files to open, nothing else.
+ * Problem: the review pasted the whole report into the terminal and started a model turn on top of it. Solution: the
+ * report is written to a file and the user gets its path and the plan's, to open them if they want to check.
+ */
+export function reviewPaths(reportFile: string, plan: string | undefined, cwd: string): string {
+	const lines = [`Report: ${reportFile}`];
+	if (plan) lines.push(`Plan: ${isAbsolute(plan) ? plan : join(cwd, plan)}`);
+	return lines.join("\n");
 }
 
 export const ARCHITECTURE = `## How Faro works
@@ -100,7 +97,7 @@ export function askContext(question: string, env: NodeJS.ProcessEnv = process.en
 	].join("\n");
 }
 
-async function review(pi: ExtensionAPI, args: string[], ctx: ExtensionCommandContext): Promise<void> {
+async function review(args: string[], ctx: ExtensionCommandContext): Promise<void> {
 	const records = readJournal(hubPaths(agentLinkHome()).sessions);
 	const current = args.includes("--last")
 		? {}
@@ -118,10 +115,7 @@ async function review(pi: ExtensionAPI, args: string[], ctx: ExtensionCommandCon
 	const slug = (run.plan?.split("/").pop()?.replace(/\.md$/, "") ?? root.name).replace(/[^\w-]+/g, "-");
 	const file = join(paths.reports, `${stamp}-${slug}.md`);
 	writeFileSync(file, `${report}\n`);
-	pi.sendMessage(
-		{ customType: MESSAGE_TYPE, content: `${report}\n\n---\n\n${reviewInstructions(file, run.plan)}`, display: true },
-		{ triggerTurn: true },
-	);
+	ctx.ui.notify(reviewPaths(file, run.plan, root.cwd), "info");
 }
 
 export default function workflow(pi: ExtensionAPI): void {
@@ -131,7 +125,7 @@ export default function workflow(pi: ExtensionAPI): void {
 			["review", "review --last", "ask "].filter((c) => c.startsWith(prefix)).map((c) => ({ value: c, label: c })),
 		handler: async (raw, ctx) => {
 			const [sub, ...rest] = raw.trim().split(/\s+/);
-			if (sub === "review") return review(pi, rest, ctx);
+			if (sub === "review") return review(rest, ctx);
 			if (sub === "ask" && rest.join(" ").trim()) {
 				pi.sendMessage(
 					{ customType: MESSAGE_TYPE, content: askContext(rest.join(" ").trim()), display: false },

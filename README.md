@@ -99,7 +99,7 @@ Then ask for what you want, or start the workflow explicitly:
 | Command | What it does |
 | --- | --- |
 | `/skill:planner <idea>` | Plans with you, then hands the plan to an executor agent. |
-| `/workflow review` | What the last run did: tasks, agents, skills, tokens and time by role, harness and message, then recommendations. |
+| `/workflow review` | What the last run did: tasks, agents, skills, tokens and time by role, harness and message. It writes a report and prints only the paths of the report and the plan. |
 | `/workflow ask <question>` | Answers about your workflow, skills and setup; researches tools you name. |
 | `/skill:<name>` | Runs any skill by hand, e.g. `/skill:code-review-and-quality`. |
 
