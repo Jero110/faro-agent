@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loginClaudeCode } from "../src/extensions/claude-login.ts";
+import { type ClaudeAuth, loginClaudeCode } from "../src/extensions/claude-login.ts";
 import { faroPaths } from "../src/paths.ts";
 import { BRIDGE_SOURCE, ensureAgentDir } from "../src/setup.ts";
 
@@ -17,6 +17,17 @@ function setupHome(t: { after: (fn: () => void) => void }, withClaude: boolean) 
 	ensureAgentDir(faroPaths(env, home));
 	return { home, env };
 }
+
+/** The bridge already installed: its folder and its settings entry, as pi install leaves them. */
+function bridgeInstalled(home: string, env: NodeJS.ProcessEnv): void {
+	const paths = faroPaths(env, home);
+	mkdirSync(join(paths.agentDir, "npm", "node_modules", "pi-claude-bridge"), { recursive: true });
+	const file = join(paths.agentDir, "settings.json");
+	const s = JSON.parse(readFileSync(file, "utf8"));
+	writeFileSync(file, JSON.stringify({ ...s, packages: [...s.packages, BRIDGE_SOURCE] }));
+}
+
+const signedIn: ClaudeAuth = { status: () => ({ email: "me@x.com", plan: "pro" }), signIn: async () => true };
 
 test("Claude sub in /login: without claude on PATH it says so and installs nothing", async (t) => {
 	const { env } = setupHome(t, false);
@@ -46,6 +57,7 @@ test("Claude sub in /login installs the bridge, never makes it the default, and 
 		{ onProgress: (m) => progress.push(m) },
 		{
 			env,
+			auth: signedIn,
 			// What the real pi install leaves behind: the package folder and the settings entry.
 			run: (argv) => {
 				assert.deepEqual(argv.slice(2), ["install", BRIDGE_SOURCE]);
@@ -66,5 +78,47 @@ test("Claude sub in /login installs the bridge, never makes it the default, and 
 
 test("Claude sub in /login reports a failed install", async (t) => {
 	const { env } = setupHome(t, true);
-	await assert.rejects(loginClaudeCode({}, { env, run: () => 1 }), /could not install the Claude bridge/i);
+	await assert.rejects(
+		loginClaudeCode({}, { env, auth: signedIn, run: () => 1 }),
+		/could not install the Claude bridge/i,
+	);
+});
+
+test("Claude sub in /login opens the browser sign-in when Claude Code is not signed in", async (t) => {
+	const { home, env } = setupHome(t, true);
+	bridgeInstalled(home, env);
+	let account: { email: string } | undefined;
+	let signIns = 0;
+	const auth: ClaudeAuth = {
+		status: () => account,
+		signIn: async () => {
+			signIns++;
+			account = { email: "me@x.com" };
+			return true;
+		},
+	};
+	const progress: string[] = [];
+	const credential = await loginClaudeCode({ onProgress: (m) => progress.push(m) }, { env, auth });
+	assert.equal(signIns, 1, "not signed in: the browser sign-in runs once");
+	assert.equal(credential.email, "me@x.com");
+	assert.match(progress.join("\n"), /Opening the browser/);
+});
+
+test("Claude sub in /login lets a signed-in user keep the account or sign in again", async (t) => {
+	const { home, env } = setupHome(t, true);
+	bridgeInstalled(home, env);
+	let signIns = 0;
+	const auth: ClaudeAuth = {
+		status: () => ({ email: "me@x.com", plan: "pro" }),
+		signIn: async () => {
+			signIns++;
+			return true;
+		},
+	};
+	const pick = (id: string) => async () => id;
+	await loginClaudeCode({ onSelect: pick("keep") }, { env, auth });
+	assert.equal(signIns, 0, "keep: no browser");
+	await loginClaudeCode({ onSelect: pick("again") }, { env, auth });
+	assert.equal(signIns, 1, "again: the browser opens");
+	await assert.rejects(loginClaudeCode({ onSelect: async () => undefined }, { env, auth }), /cancelled/i);
 });
