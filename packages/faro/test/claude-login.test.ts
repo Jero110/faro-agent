@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import registerClaudeLogin, { type ClaudeAuth, loginClaudeCode, PROVIDER_ID, registerBridgeProvider } from "../src/extensions/claude-login.ts";
+import registerClaudeLogin, {
+	type ClaudeAuth,
+	loginClaudeCode,
+	PROVIDER_ID,
+	registerBridgeProvider,
+} from "../src/extensions/claude-login.ts";
 import { faroPaths } from "../src/paths.ts";
 import { BRIDGE_SOURCE, ensureAgentDir } from "../src/setup.ts";
 
@@ -137,7 +142,10 @@ test("Claude sub has no placeholder apiKey, so /login does not list it as config
 test("the login registers the bridge's provider itself, so its models are there without /reload", () => {
 	const registered: Array<{ id: string; config: unknown }> = [];
 	const calls: string[] = [];
-	const pi = { registerProvider: (id: string, config: unknown) => registered.push({ id, config }), on: () => calls.push("on") };
+	const pi = {
+		registerProvider: (id: string, config: unknown) => registered.push({ id, config }),
+		on: () => calls.push("on"),
+	};
 	const config = { apiKey: "not-used", models: [{ id: "m" }] };
 	const ok = registerBridgeProvider(pi as never, (p) => {
 		p.on("session_start" as never, (() => {}) as never);
