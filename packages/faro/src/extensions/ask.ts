@@ -126,14 +126,14 @@ export function skillPickerQuestion(
 		...dev.filter((s) => !why.has(s.name)),
 	];
 	const options: AskOption[] = ordered.map((s) => ({
-		label: `${s.name} (${s.author})${why.has(s.name) ? " (Recommended)" : ""}`,
+		label: `${pickerName(s)}${why.has(s.name) ? " (Recommended)" : ""}`,
 		description: why.get(s.name) ?? pick.notes?.[s.name] ?? s.summary,
 	}));
 	const names = ordered.map((s) => s.name);
 	for (const n of extras) {
 		const s = byName.get(n);
 		if (!s || names.includes(n)) continue;
-		options.push({ label: `${s.name} (${s.author}) (you asked for it)`, description: s.summary });
+		options.push({ label: `${pickerName(s)} (you asked for it)`, description: s.summary });
 		names.push(n);
 	}
 	return {
@@ -147,12 +147,17 @@ export function skillPickerQuestion(
 	};
 }
 
+/** A skill's name in the picker: its author in brackets, except Addy's, which are most of the list. */
+function pickerName(s: { name: string; author: string }): string {
+	return s.author === "Addy" ? s.name : `${s.name} (${s.author})`;
+}
+
 /** The picked skills as the model reads them: names and the SKILL.md paths for the plan's Skills table. */
 export function pickedSkillsText(result: AskResult, names: string[], catalog: Catalog, dir?: string): string {
 	if (result.cancelled) return "The user closed the skills picker without answering. Ask again or plan with no skills.";
 	const a = result.answers[0];
 	if (a?.typed !== undefined) return `The user wrote instead of picking: ${a.typed}`;
-	const picked = names.filter((n) => a?.picked.some((l) => l.startsWith(`${n} (`)));
+	const picked = names.filter((n) => a?.picked.some((l) => l === n || l.startsWith(`${n} (`)));
 	if (!picked.length) return "The user picked no skills: the plan uses none.";
 	const lines = picked.map((n) => {
 		const s = catalog.skills.find((x) => x.name === n);

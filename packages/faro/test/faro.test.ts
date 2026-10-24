@@ -538,10 +538,10 @@ test("pick_skills lists every development skill, recommended first, plus the ext
 	assert.deepEqual(built.names.slice(0, 2), ["spec-driven-development", "incremental-implementation"]);
 	assert.equal(built.names.at(-1), "impeccable");
 	const labels = built.question.options.map((o) => o.label);
-	assert.equal(labels[0], "spec-driven-development (Addy) (Recommended)");
+	assert.equal(labels[0], "spec-driven-development (Recommended)");
 	assert.equal(labels.at(-1), "impeccable (Paul Bakaus) (you asked for it)");
 	assert.equal(labels.filter((l) => l.endsWith("(Recommended)")).length, 2);
-	const tdd = built.question.options.find((o) => o.label.startsWith("test-driven-development ("));
+	const tdd = built.question.options.find((o) => o.label === "test-driven-development");
 	assert.equal(tdd?.description, "little to test in a static page");
 
 	const bad = skillPickerQuestion(catalog, { recommended: [{ name: "impeccable", why: "x" }], include: ["planner"] });
@@ -559,7 +559,7 @@ test("pick_skills returns only the picked skills, with their SKILL.md paths", ()
 		{
 			cancelled: false,
 			answers: [
-				{ header: "Skills", picked: ["test-driven-development (Addy)", "impeccable (Paul Bakaus) (you asked for it)"] },
+				{ header: "Skills", picked: ["test-driven-development", "impeccable (Paul Bakaus) (you asked for it)"] },
 			],
 		},
 		built.names,

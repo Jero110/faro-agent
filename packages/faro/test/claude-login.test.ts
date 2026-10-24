@@ -18,7 +18,7 @@ function setupHome(t: { after: (fn: () => void) => void }, withClaude: boolean) 
 	return { home, env };
 }
 
-test("Claude Code (bridge) in /login: without claude on PATH it says so and installs nothing", async (t) => {
+test("Claude sub in /login: without claude on PATH it says so and installs nothing", async (t) => {
 	const { env } = setupHome(t, false);
 	const runs: string[][] = [];
 	await assert.rejects(
@@ -37,7 +37,7 @@ test("Claude Code (bridge) in /login: without claude on PATH it says so and inst
 	assert.equal(runs.length, 0);
 });
 
-test("Claude Code (bridge) in /login installs the bridge, never makes it the default, and returns a credential", async (t) => {
+test("Claude sub in /login installs the bridge, never makes it the default, and returns a credential", async (t) => {
 	const { home, env } = setupHome(t, true);
 	const paths = faroPaths(env, home);
 	const settingsFile = join(paths.agentDir, "settings.json");
@@ -64,7 +64,7 @@ test("Claude Code (bridge) in /login installs the bridge, never makes it the def
 	assert.match(progress.join("\n"), /\/reload/);
 });
 
-test("Claude Code (bridge) in /login reports a failed install", async (t) => {
+test("Claude sub in /login reports a failed install", async (t) => {
 	const { env } = setupHome(t, true);
 	await assert.rejects(loginClaudeCode({}, { env, run: () => 1 }), /could not install the Claude bridge/i);
 });

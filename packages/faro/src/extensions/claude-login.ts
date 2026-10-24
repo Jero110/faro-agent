@@ -1,7 +1,7 @@
-// "Claude Code (bridge)" in /login: the Claude bridge as one more way to connect, next to pi's own Anthropic login.
+// "Claude sub" in /login: the Claude bridge, for Claude subscriptions, as one more way to connect next to pi's own Anthropic login.
 //
 // Problem: the bridge was either installed for everyone (and became what /model and /login led to) or not
-// reachable at all. Solution: it stays out until the user picks "Claude Code (bridge)" in /login; that installs
+// reachable at all. Solution: it stays out until the user picks "Claude sub" in /login; that installs
 // the bridge into Faro's agent dir, and /reload then loads its Claude models. Pi's native Anthropic login is untouched.
 import { spawnSync } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -46,7 +46,7 @@ export default function (pi: ExtensionAPI) {
 		api: "anthropic-messages",
 		models: [],
 		oauth: {
-			name: "Claude Code (bridge)",
+			name: "Claude sub",
 			login: (callbacks) => loginClaudeCode(callbacks),
 			refreshToken: async (credentials) => ({ ...credentials, expires: Date.now() + A_YEAR }),
 			getApiKey: (credentials) => credentials.access,
