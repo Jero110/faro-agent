@@ -131,5 +131,5 @@ test("Claude sub has no placeholder apiKey, so /login does not list it as config
 	assert.equal(registered.length, 1);
 	assert.equal(registered[0]?.id, PROVIDER_ID);
 	assert.equal(registered[0]?.config.apiKey, undefined);
-	assert.equal((registered[0]?.config.oauth as { name: string }).name, "Claude sub");
+	assert.equal((registered[0]?.config.oauth as { name: string } | undefined)?.name, "Claude sub");
 });
