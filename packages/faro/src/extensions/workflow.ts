@@ -21,14 +21,16 @@ export const USAGE = "usage: /workflow review [--last] | /workflow ask <question
 
 export function reviewInstructions(reportFile: string, plan: string | undefined): string {
 	return [
-		`The report above is computed from the transcripts (saved at ${reportFile}). Now:`,
+		`The report of the last run is saved at ${reportFile}: all the metrics, computed from the transcripts. It is not in this`,
+		"message on purpose. Read the file, then:",
 		"1. Summarize in 3-5 lines what this run did: tasks, which agent and harness did each, the skills used.",
 		"   When you give token counts, use new tokens; name cache reads separately, as context read again, never as one sum.",
 		"2. Write up to 5 recommendations to improve the workflow. Look at: skills that helped, were assigned but not loaded, or were missing;",
 		"   task split and parallelism; harness and model per task; brief quality (questions back, retries, tool errors); time and token waste",
 		"   (slow answers, large inputs, idle waits). For each: the change, the evidence (agent name and message #), and where to change it",
 		`   (a skill under ${SKILLS_DIR}, the plan${plan ? ` ${plan}` : ""}, or the executor's choices).`,
-		`3. Append both to ${reportFile} as "## Summary" and "## Recommendations", so the saved report has them. Edit no other file.`,
+		`3. Append both to ${reportFile} as "## Summary" and "## Recommendations", below the metrics. Edit no other file.`,
+		"4. Print nothing else: do not repeat the metrics, the summary or the recommendations. Your whole answer is the path of the report.",
 		`The skills catalog is ${join(SKILLS_DIR, "catalog.json")}; read a skill or the plan when a recommendation depends on it.`,
 	].join("\n");
 }
@@ -118,8 +120,10 @@ async function review(pi: ExtensionAPI, args: string[], ctx: ExtensionCommandCon
 	const slug = (run.plan?.split("/").pop()?.replace(/\.md$/, "") ?? root.name).replace(/[^\w-]+/g, "-");
 	const file = join(paths.reports, `${stamp}-${slug}.md`);
 	writeFileSync(file, `${report}\n`);
+	// Problem: the report went into the session as a message, which filled the screen and spent tokens the model did not
+	// need. Solution: the report stays in its file; the model gets only the path and writes its recommendations there.
 	pi.sendMessage(
-		{ customType: MESSAGE_TYPE, content: `${report}\n\n---\n\n${reviewInstructions(file, run.plan)}`, display: true },
+		{ customType: MESSAGE_TYPE, content: reviewInstructions(file, run.plan), display: false },
 		{ triggerTurn: true },
 	);
 }
