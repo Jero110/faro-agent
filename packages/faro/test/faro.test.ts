@@ -38,7 +38,7 @@ test("the logo is the lighthouse: 6 lines of the same width, colors from the ima
 	assert.ok(lines.join("").includes("\u001b[38;2;238;238;238m"), "the light gray of the image");
 });
 
-test("the agent dir is made once from pi's login, with Sonnet, this checkout's skills and no stray extensions", (t) => {
+test("the agent dir is made once from pi's login, with no default model, this checkout's skills and no stray extensions", (t) => {
 	const { home, env } = tempHome(t);
 	const pi = join(home, ".pi", "agent");
 	mkdirSync(join(pi, "npm"), { recursive: true });
@@ -47,8 +47,8 @@ test("the agent dir is made once from pi's login, with Sonnet, this checkout's s
 	const paths = faroPaths(env, home);
 	assert.deepEqual(ensureAgentDir(paths), { wrote: true, copied: ["auth.json", "npm"] });
 	const settings = JSON.parse(readFileSync(join(paths.agentDir, "settings.json"), "utf8"));
-	assert.equal(settings.defaultProvider, "claude-bridge");
-	assert.equal(settings.defaultModel, "claude-sonnet-5-5");
+	assert.equal(settings.defaultProvider, undefined, "the bridge is available, never the default");
+	assert.equal(settings.defaultModel, undefined);
 	assert.deepEqual(settings.packages, ["npm:pi-claude-bridge"]);
 	assert.deepEqual(settings.skills, SKILL_GROUP_DIRS);
 	assert.deepEqual(settings.extensions, ["!extensions/**"]);
@@ -62,12 +62,13 @@ test("the agent dir is made once from pi's login, with Sonnet, this checkout's s
 	assert.deepEqual(again.skills, [...SKILL_GROUP_DIRS, "/home/me/my-skills"], "skills follow the checkout");
 });
 
-test("without pi's bridge Faro starts on Anthropic's Sonnet", (t) => {
+test("without pi's bridge Faro still sets no default provider", (t) => {
 	const { home, env } = tempHome(t);
 	const paths = faroPaths(env, home);
 	ensureAgentDir(paths);
 	const settings = JSON.parse(readFileSync(join(paths.agentDir, "settings.json"), "utf8"));
-	assert.equal(settings.defaultProvider, "anthropic");
+	assert.equal(settings.defaultProvider, undefined);
+	assert.equal(settings.defaultModel, undefined);
 	assert.deepEqual(settings.packages, []);
 });
 
@@ -105,7 +106,7 @@ test("setup installs the Claude bridge with pi install when Claude Code is there
 	);
 	assert.deepEqual(runs[0]?.argv.slice(2), ["install", BRIDGE_SOURCE]);
 	assert.equal(runs[0]?.dir, paths.agentDir, "into Faro's agent dir, not pi's");
-	assert.equal(JSON.parse(readFileSync(settingsFile, "utf8")).defaultProvider, "claude-bridge");
+	assert.equal(JSON.parse(readFileSync(settingsFile, "utf8")).defaultProvider, undefined, "installed, not the default");
 
 	assert.equal(
 		ensureBridge(paths, withClaude, () => {}, fakePi),

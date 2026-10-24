@@ -13,8 +13,6 @@ import { FARO_CLI, type FaroPaths, PI_CLI, SKILL_GROUP_DIRS, SKILLS_DIR } from "
 
 /** The mark Faro puts in settings.json, so it never rewrites settings it did not write. */
 export const SETTINGS_VERSION = 1;
-/** Faro's default model. Skills never fix a model; this is only what a new session starts with. */
-export const DEFAULT_MODEL = "claude-sonnet-5-5";
 /** The pi package that serves Claude models through the Claude Code login, when the user has it. */
 export const BRIDGE_PACKAGE = "pi-claude-bridge";
 
@@ -48,8 +46,11 @@ export function bridgeEntry(piSettings: unknown): unknown {
 }
 
 /**
- * The settings Faro writes once: its mark, the skills of this checkout, the bridge package when pi has it,
- * and Sonnet as the starting model (through the bridge when there is one, else pi's Anthropic provider).
+ * The settings Faro writes once: its mark, the skills of this checkout and the bridge package when pi has it.
+ * No default provider or model: pi starts on whichever provider the user is logged in to, and the bridge's Claude
+ * models are one /model away.
+ * Problem: the bridge was the default provider whenever it was installed. Example: a user who logged in with
+ * ChatGPT still started on Sonnet through the Claude Code login. Solution: the bridge is available, never the default.
  * Problem: pi loads every file in <agentDir>/extensions. Solution: "!extensions/**" keeps that folder out;
  * Faro's own extensions come in with -e.
  */
@@ -57,8 +58,6 @@ export function faroSettings(piSettings: unknown): Obj {
 	const bridge = bridgeEntry(piSettings);
 	return {
 		faro: { version: SETTINGS_VERSION },
-		defaultProvider: bridge === undefined ? "anthropic" : "claude-bridge",
-		defaultModel: DEFAULT_MODEL,
 		packages: bridge === undefined ? [] : [bridge],
 		skills: [...SKILL_GROUP_DIRS],
 		// The header stays; the long list of loaded skills and extensions at startup goes.
@@ -118,11 +117,10 @@ export type Run = (argv: string[], env: NodeJS.ProcessEnv) => number;
 const runInherit: Run = (argv, env) => spawnSync(argv[0] ?? "", argv.slice(1), { env, stdio: "inherit" }).status ?? 1;
 
 /**
- * Installs the Claude bridge into Faro's agent dir when Claude Code is there and the bridge is not, and makes it the
- * default provider.
+ * Installs the Claude bridge into Faro's agent dir when Claude Code is there and the bridge is not. It stays an
+ * option in /model; it is never made the default provider.
  * Problem: Faro got the bridge only by copying pi's packages. Example: on a machine where pi never had it, a fresh
- * install started Faro on the anthropic provider, which needs an API key, though the user was logged in to Claude
- * Code. Solution: setup runs `pi install` for the pinned bridge with PI_CODING_AGENT_DIR set to Faro's agent dir.
+ * install had no Claude models, though the user was logged in to Claude Code. Solution: setup runs `pi install` for the pinned bridge with PI_CODING_AGENT_DIR set to Faro's agent dir.
  */
 export function ensureBridge(
 	paths: FaroPaths,
@@ -134,20 +132,10 @@ export function ensureBridge(
 	const installed = () =>
 		bridgeEntry(readJson(file)) !== undefined &&
 		existsSync(join(paths.agentDir, "npm", "node_modules", BRIDGE_PACKAGE));
-	const useBridge = () => {
-		const settings = readJson(file);
-		if (isObj(settings) && settings.defaultProvider !== "claude-bridge") {
-			settings.defaultProvider = "claude-bridge";
-			writeJson(file, settings);
-		}
-	};
-	if (installed()) {
-		useBridge();
-		return "present";
-	}
+	if (installed()) return "present";
 	if (!which("claude", env)) {
 		out(
-			"faro: Claude Code (claude) is not on PATH, so the Claude bridge was skipped and Faro starts on the anthropic provider. Install Claude Code and run `faro setup` again to use your Claude login.",
+			"faro: Claude Code (claude) is not on PATH, so the Claude bridge was skipped. Install Claude Code and run `faro setup` again to use your Claude login.",
 		);
 		return "skipped";
 	}
@@ -160,7 +148,6 @@ export function ensureBridge(
 		out(`faro: could not install the Claude bridge (pi install exited ${status}); run \`faro setup\` again later`);
 		return "failed";
 	}
-	useBridge();
 	return "installed";
 }
 
