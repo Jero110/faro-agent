@@ -66,11 +66,20 @@ const toml = (v: string | readonly string[]) => JSON.stringify(v);
  * The `-c` overrides for the app-server: the model when given, and the agent-link MCP server unless Codex has it
  * installed. Codex filters the env of its MCP servers, so the identity vars must be listed in env_vars, and it
  * asks before every MCP tool call unless default_tools_approval_mode is "approve" (lab Experiment 7, V4).
+ *
+ * Workers also get the workspace-write sandbox. Problem: in a folder Codex has not trusted, it starts read-only,
+ * so a worker cannot write even inside its own cwd, and the model often gives up instead of asking to escalate.
+ * Example: a researcher told to write src/data/trip.json answered "Operation not permitted" and ended its turn;
+ * no approval request ever reached the hub, so the parent was never asked. Solution: workspace-write with network,
+ * like Claude and opencode workers have; anything outside cwd still goes through an approval the parent answers.
  */
 export function codexConfigArgs(spec: LaunchSpec, mcpInstalled: boolean): string[] {
 	const args: string[] = [];
 	const model = spec.model ?? spec.profile.defaultModel;
 	if (model) args.push("-c", `model=${toml(model)}`);
+	if (spec.parent) {
+		args.push("-c", `sandbox_mode="workspace-write"`, "-c", "sandbox_workspace_write.network_access=true");
+	}
 	if (!mcpInstalled) {
 		const key = `mcp_servers.${MCP_NAME}`;
 		args.push(

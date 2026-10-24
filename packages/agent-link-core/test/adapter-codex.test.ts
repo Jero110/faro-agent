@@ -69,11 +69,14 @@ async function harness(t: TestContext, opts: { depth?: number; installed?: strin
 	return { ...h, cmd };
 }
 
-test("config args: model, and the agent-link MCP server with env_vars and approve unless installed", () => {
+const WORKER_SANDBOX = ["-c", 'sandbox_mode="workspace-write"', "-c", "sandbox_workspace_write.network_access=true"];
+
+test("config args: model, workspace-write for workers, and the agent-link MCP server unless installed", () => {
 	const s = spec("gpt-6");
 	assert.deepEqual(codexConfigArgs(s, false), [
 		"-c",
 		'model="gpt-6"',
+		...WORKER_SANDBOX,
 		"-c",
 		'mcp_servers.agent-link.command="/bin/xl"',
 		"-c",
@@ -83,7 +86,8 @@ test("config args: model, and the agent-link MCP server with env_vars and approv
 		"-c",
 		'mcp_servers.agent-link.default_tools_approval_mode="approve"',
 	]);
-	assert.deepEqual(codexConfigArgs(spec(), true), []);
+	assert.deepEqual(codexConfigArgs(spec(), true), WORKER_SANDBOX);
+	assert.deepEqual(codexConfigArgs({ ...spec(), parent: null }, true), [], "a root keeps the user's own sandbox");
 });
 
 test("launch starts one app-server on a free port with the identity env; the pane runs the TUI on it", async (t) => {
@@ -92,7 +96,7 @@ test("launch starts one app-server on a free port with the identity env; the pan
 	assert.equal(proc.args[0], "app-server");
 	assert.equal(proc.args[1], "--listen");
 	assert.match(proc.args[2] ?? "", /^ws:\/\/127\.0\.0\.1:\d+$/);
-	assert.equal(proc.args.length, 3, "agent-link installed globally: no -c flags");
+	assert.deepEqual(proc.args.slice(3), WORKER_SANDBOX, "agent-link installed globally: only the worker sandbox");
 	assert.equal(proc.cwd, "/work");
 	assert.equal(proc.env.AGENT_LINK_AGENT, "codex-1");
 	assert.deepEqual(cmd.argv, ["codex", "--remote", proc.args[2]]);
