@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { type RootOptions, runRoot } from "agent-link";
 import { type PaneCommand, READ_DIRS_ENV, readDirsFromEnv } from "agent-link-core";
+import { cmuxHookExtension } from "./cmux-hooks.ts";
 import { EXTENSIONS, type FaroPaths, faroPaths, PI_CLI, SKILLS_DIR } from "./paths.ts";
 import { ensureAgentDir, writeFaroProfile } from "./setup.ts";
 
@@ -38,7 +39,7 @@ export function withSkillsDir(env: NodeJS.ProcessEnv): string {
 /** The pi command line for one Faro run. */
 export function piCommand(paths: FaroPaths, argv: readonly string[], env: NodeJS.ProcessEnv, cwd: string): PaneCommand {
 	return {
-		argv: [process.execPath, PI_CLI, ...EXTENSIONS.flatMap((e) => ["-e", e]), ...argv],
+		argv: [process.execPath, PI_CLI, ...[...EXTENSIONS, ...cmuxHookExtension(env)].flatMap((e) => ["-e", e]), ...argv],
 		// Faro pins pi and updates it with its own install, so pi's "run pi update" notice would be wrong advice.
 		env: {
 			...env,
