@@ -7,7 +7,9 @@ import registerClaudeLogin, {
 	type ClaudeAuth,
 	loginClaudeCode,
 	PROVIDER_ID,
+	RELOAD_COMMAND,
 	registerBridgeProvider,
+	reloadAfterLogin,
 } from "../src/extensions/claude-login.ts";
 import { faroPaths } from "../src/paths.ts";
 import { BRIDGE_SOURCE, ensureAgentDir } from "../src/setup.ts";
@@ -78,7 +80,7 @@ test("Claude sub in /login installs the bridge, never makes it the default, and 
 	const settings = JSON.parse(readFileSync(settingsFile, "utf8"));
 	assert.deepEqual(settings.packages, [BRIDGE_SOURCE]);
 	assert.equal(settings.defaultProvider, undefined, "available, not the default");
-	assert.match(progress.join("\n"), /\/reload/);
+	assert.match(progress.join("\n"), /reload/i);
 });
 
 test("Claude sub in /login reports a failed install", async (t) => {
@@ -132,6 +134,7 @@ test("Claude sub has no placeholder apiKey, so /login does not list it as config
 	const registered: Array<{ id: string; config: Record<string, unknown> }> = [];
 	registerClaudeLogin({
 		registerProvider: (id: string, config: Record<string, unknown>) => registered.push({ id, config }),
+		registerCommand: () => {},
 	} as never);
 	assert.equal(registered.length, 1);
 	assert.equal(registered[0]?.id, PROVIDER_ID);
@@ -169,4 +172,29 @@ test("Claude sub activates the bridge after the sign-in, and only asks for /relo
 	assert.doesNotMatch(progress.join("\n"), /reload/);
 	await loginClaudeCode({ onProgress: (m) => progress.push(m) }, { env, auth: signedIn, activate: async () => false });
 	assert.match(progress.join("\n"), /reload/);
+});
+
+test("after the login pi reloads by itself: a command of ours reloads, and pi.sendUserMessage runs it", async () => {
+	const commands: Record<string, { handler: (a: string, ctx: { reload(): Promise<void> }) => Promise<void> }> = {};
+	const sent: Array<{ text: string; options: unknown }> = [];
+	const pi = {
+		registerProvider: () => {},
+		registerCommand: (name: string, c: (typeof commands)[string]) => {
+			commands[name] = c;
+		},
+		sendUserMessage: async (text: string, options: unknown) => {
+			sent.push({ text, options });
+		},
+	};
+	await registerClaudeLogin(pi as never);
+	let reloads = 0;
+	await commands[RELOAD_COMMAND]?.handler("", {
+		reload: async () => {
+			reloads++;
+		},
+	});
+	assert.equal(reloads, 1, "the command reloads");
+	reloadAfterLogin(pi as never, 0);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.deepEqual(sent, [{ text: `/${RELOAD_COMMAND}`, options: { expandPromptTemplates: true } }]);
 });

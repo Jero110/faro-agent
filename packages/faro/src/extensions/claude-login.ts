@@ -102,7 +102,7 @@ export async function loginClaudeCode(callbacks: LoginCallbacks, deps: LoginDeps
 		account = auth.status(env);
 		if (!account) throw new Error("Claude Code is still not signed in. Try again.");
 	}
-	if (!(await deps.activate?.())) callbacks.onProgress?.("Claude sub ready: run /reload, then pick a model in /model");
+	if (!(await deps.activate?.())) callbacks.onProgress?.("Claude sub ready: reloading, then pick a model in /model");
 	return { refresh: "", access: MARKER, expires: Date.now() + A_YEAR, email: account?.email };
 }
 
@@ -137,7 +137,29 @@ async function loadBridge(env: NodeJS.ProcessEnv): Promise<(pi: ExtensionAPI) =>
 	return ((await import(file)) as { default: (pi: ExtensionAPI) => void }).default;
 }
 
+/** The command the login runs to reload pi: only a command's context can reload. */
+export const RELOAD_COMMAND = "claude-sub-reload";
+
+/**
+ * Reloads pi a moment after the login, so the bridge loads whole (tools and events too) with no /reload typed.
+ * Problem: pi gives an extension no way to reload, and the login had to ask the user to type /reload. Example: pi's
+ * own message after the login said to use /model, which had nothing to pick yet. Solution: a command of ours does
+ * `ctx.reload()`, and pi.sendUserMessage runs it when `expandPromptTemplates` is true. The wait lets pi save the
+ * credential and print its message first, as a reload during the login would drop it.
+ */
+export function reloadAfterLogin(pi: ExtensionAPI, delayMs = 1500): void {
+	setTimeout(() => {
+		pi.sendUserMessage(`/${RELOAD_COMMAND}`, { expandPromptTemplates: true }).catch(() => undefined);
+	}, delayMs);
+}
+
 export default function (pi: ExtensionAPI) {
+	pi.registerCommand(RELOAD_COMMAND, {
+		description: "Reload pi (run by the Claude sub login)",
+		handler: async (_args, ctx) => {
+			await ctx.reload();
+		},
+	});
 	const activate = async (): Promise<boolean> => {
 		try {
 			return registerBridgeProvider(pi, await loadBridge(process.env));
@@ -151,7 +173,11 @@ export default function (pi: ExtensionAPI) {
 		models: [],
 		oauth: {
 			name: "Claude sub",
-			login: (callbacks) => loginClaudeCode(callbacks, { activate }),
+			login: async (callbacks) => {
+				const credential = await loginClaudeCode(callbacks, { activate });
+				reloadAfterLogin(pi);
+				return credential;
+			},
 			refreshToken: async (credentials) => ({ ...credentials, expires: Date.now() + A_YEAR }),
 			getApiKey: (credentials) => credentials.access,
 		},
