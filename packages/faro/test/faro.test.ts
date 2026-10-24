@@ -16,7 +16,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { Journal, readJournal } from "agent-link-core";
 import type { TranscriptRoots } from "agent-transcripts";
 import { answersText, pickedSkillsText, showPicker, skillPickerQuestion } from "../src/extensions/ask.ts";
-import { askContext, reviewPaths } from "../src/extensions/workflow.ts";
+import { askContext, reviewInstructions } from "../src/extensions/workflow.ts";
 import { piCommand, runFaro, withSkillsDir } from "../src/launcher.ts";
 import { LOGO_WIDTH, logoLines } from "../src/logo.ts";
 import { EXTENSIONS, faroPaths, PI_CLI, SKILL_GROUP_DIRS, SKILLS_DIR } from "../src/paths.ts";
@@ -484,10 +484,11 @@ test("a run is rebuilt from the journal and transcripts: roles, plan, tasks, ski
 	);
 	assert.match(report, /### t1-list \(worker, claude\)/);
 	assert.match(report, /\| 1 \| 10:00:50 \| 30s \| 5 \| 7 \| 0 \| Read \| test-driven-development \|/);
-	// The review prints only where the two files are, never the report.
-	assert.equal(reviewPaths("/r.md", run.plan, "/proj"), `Report: /r.md\nPlan: /proj/${run.plan}`);
-	assert.equal(reviewPaths("/r.md", "/abs/plan.md", "/proj"), "Report: /r.md\nPlan: /abs/plan.md");
-	assert.equal(reviewPaths("/r.md", undefined, "/proj"), "Report: /r.md");
+	assert.match(reviewInstructions("/r.md", run.plan), /up to 5 recommendations/);
+	assert.match(
+		reviewInstructions("/r.md", run.plan),
+		/Append both to \/r\.md as "## Summary" and "## Recommendations"/,
+	);
 });
 
 test("/workflow ask carries the architecture, the catalog, this machine and the question", (t) => {
