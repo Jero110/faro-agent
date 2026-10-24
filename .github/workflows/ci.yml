@@ -28,11 +28,11 @@ jobs:
       - uses: actions/checkout@v5.0.0
       - name: Remove the runner's Node.js, as on a fresh Ubuntu
         run: sudo rm -f "$(command -v node)" "$(command -v npm)" "$(command -v npx)"
-      - name: install.sh --deps --with-harnesses in a fresh HOME
+      - name: install.sh --deps --with-harnesses --claude-bridge in a fresh HOME
         run: |
           # A fresh user: its own HOME, and no XDG_CONFIG_HOME (the runner sets one under the real home).
           export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME" && unset XDG_CONFIG_HOME
-          bash install.sh --backend tmux --deps --with-harnesses
+          bash install.sh --backend tmux --deps --with-harnesses --claude-bridge
           export PATH="$HOME/.local/bin:$PATH"
           node --version
           tmux -V
@@ -40,7 +40,8 @@ jobs:
           grep -q agent-link "$HOME/.codex/config.toml"
           grep -q agent-link "$HOME/.config/opencode/opencode.json"
           test -f "$HOME/.agent-link/profiles/faro.json"
-          grep -q '"defaultProvider": "claude-bridge"' "$HOME/.faro/agent/settings.json"
+          # The bridge is installed because it was asked for, and is still not the default.
+          ! grep -q '"defaultProvider"' "$HOME/.faro/agent/settings.json"
           test -d "$HOME/.faro/agent/npm/node_modules/pi-claude-bridge"
 
   # macOS with no tmux: the installer installs it with Homebrew.
@@ -59,7 +60,9 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           tmux -V
           for bin in faro agent-link claude codex opencode; do command -v "$bin"; done
-          grep -q '"defaultProvider": "claude-bridge"' "$HOME/.faro/agent/settings.json"
+          # Claude Code is on PATH, and without --claude-bridge the bridge stays out.
+          ! grep -q '"defaultProvider"' "$HOME/.faro/agent/settings.json"
+          test ! -d "$HOME/.faro/agent/npm/node_modules/pi-claude-bridge"
 
   install-windows:
     runs-on: windows-latest
