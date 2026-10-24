@@ -45,6 +45,28 @@ fail() { printf 'faro install: %s\n' "$*" >&2; exit 1; }
 
 node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
 
+# A user-managed Node can shadow Homebrew's newer Node on macOS. Prefer the
+# Homebrew binary when the selected Node is missing or below Faro's minimum.
+prefer_brew_node() {
+	[ "$(uname -s)" = Darwin ] || return 0
+	[ "$(node_major)" -ge 24 ] 2>/dev/null && return 0
+
+	for brew in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+		[ -x "$brew" ] || continue
+		prefix="$($brew --prefix 2>/dev/null)" || continue
+		candidate="$prefix/bin/node"
+		[ -x "$candidate" ] || continue
+		candidate_major="$($candidate -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+		[ "$candidate_major" -ge 24 ] 2>/dev/null || continue
+		export PATH="$prefix/bin:$prefix/sbin:$PATH"
+		hash -r
+		say "Using Homebrew Node $(node -v) from $prefix"
+		return 0
+	done
+}
+
+prefer_brew_node
+
 # 1. cmux or tmux.
 has() { command -v "$1" >/dev/null 2>&1; }
 HAS_CMUX=no; { has cmux || [ -d /Applications/cmux.app ]; } && HAS_CMUX=yes
