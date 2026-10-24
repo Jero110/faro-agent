@@ -16,7 +16,7 @@ export const SKILL_GROUP_DIRS = ["pre-build", "build", "post-build", "extras"].m
 /** This package's CLI, which agent-link runs to open a Faro worker. */
 export const FARO_CLI = fileURLToPath(new URL("./cli.ts", import.meta.url));
 /** Faro's pi extensions, loaded with -e on every run. */
-export const EXTENSIONS = ["brand.ts", "ask.ts", "workflow.ts"].map((f) =>
+export const EXTENSIONS = ["brand.ts", "ask.ts", "workflow.ts", "claude-login.ts"].map((f) =>
 	fileURLToPath(new URL(`./extensions/${f}`, import.meta.url)),
 );
 

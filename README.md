@@ -35,7 +35,7 @@
 - **Self-learning.** Every run is journaled. `/workflow review` reads what each agent did (tasks, skills, tokens,
   time per message) and recommends what to change in your skills, plans and agent choices; `/workflow ask` answers
   about your setup and researches the tools you name.
-- **Lightweight.** pi unmodified, three extensions, two MCP servers with no third-party dependencies, about 10k lines
+- **Lightweight.** pi unmodified, four extensions, two MCP servers with no third-party dependencies, about 10k lines
   of TypeScript that Node runs as is (no build step), and 23 skills as plain Markdown.
 
 ## Install
@@ -260,7 +260,7 @@ Finds and reads agent sessions, arranges cmux and drives its browser.
 ```mermaid
 flowchart LR
   you(["you"]) --> faro
-  subgraph faro["faro: pi + 3 extensions"]
+  subgraph faro["faro: pi + 4 extensions"]
     ext["header · ask_user_question · /workflow"]
   end
   faro -- "MCP stdio" --> mcp["agent-link MCP<br/>spawn · send · reply · status · cancel · inbox"]
@@ -284,7 +284,7 @@ cmux MCP and `/workflow review` work after the hub or the agents are gone.
 
 | Package | What it is |
 | --- | --- |
-| [`packages/faro`](packages/faro) | the `faro` command: launcher, setup, extensions (header, `ask_user_question`, `/workflow`) |
+| [`packages/faro`](packages/faro) | the `faro` command: launcher, setup, extensions (header, `ask_user_question`, `/workflow`, the Claude Code login) |
 | [`packages/agent-link-core`](packages/agent-link-core) | hub daemon, one adapter per harness (claude, codex, opencode, pi), MCP server, guard, session journal |
 | [`packages/agent-link`](packages/agent-link) | the composed hub and the `agent-link` CLI (`status`, `sessions`, `transcript`, `install`) |
 | [`packages/agent-link-cmux`](packages/agent-link-cmux) | cmux pane backend and its MCP entry |
