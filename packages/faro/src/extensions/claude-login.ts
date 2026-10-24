@@ -149,7 +149,10 @@ export const RELOAD_COMMAND = "claude-sub-reload";
  */
 export function reloadAfterLogin(pi: ExtensionAPI, delayMs = 1500): void {
 	setTimeout(() => {
-		pi.sendUserMessage(`/${RELOAD_COMMAND}`, { expandPromptTemplates: true }).catch(() => undefined);
+		// pi's own sendUserMessage returns nothing, so there is no promise to catch; a failure only skips the reload.
+		try {
+			pi.sendUserMessage(`/${RELOAD_COMMAND}`, { expandPromptTemplates: true });
+		} catch {}
 	}, delayMs);
 }
 

@@ -182,7 +182,8 @@ test("after the login pi reloads by itself: a command of ours reloads, and pi.se
 		registerCommand: (name: string, c: (typeof commands)[string]) => {
 			commands[name] = c;
 		},
-		sendUserMessage: async (text: string, options: unknown) => {
+		// Like pi's own: it returns nothing.
+		sendUserMessage: (text: string, options: unknown) => {
 			sent.push({ text, options });
 		},
 	};
