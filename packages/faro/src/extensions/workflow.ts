@@ -5,7 +5,7 @@
 //   session for recommendations grounded in that report.
 // ask: gives the model the architecture, the skills catalog and what is installed here, then the question.
 // The report is computed, never guessed: the model only writes the recommendations and the answers.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { agentLinkHome, hubPaths, readJournal } from "agent-link-core";
@@ -55,16 +55,32 @@ function harnessesOnPath(env: NodeJS.ProcessEnv): string[] {
 	return ["claude", "codex", "opencode", "pi", "tmux", "cmux"].filter((b) => dirs.some((d) => existsSync(join(d, b))));
 }
 
-function latestReport(dir: string): string | undefined {
+/**
+ * The newest report in `dir`, by when it was written.
+ * Problem: it picked the last file name in order, which only worked while the date led the name. Solution: the file's
+ * own time, so a name is free to start with what the review is about.
+ */
+export function latestReport(dir: string): string | undefined {
 	try {
 		const files = readdirSync(dir)
 			.filter((f) => f.endsWith(".md"))
-			.sort();
+			.map((f) => ({ f, at: statSync(join(dir, f)).mtimeMs }))
+			.sort((a, b) => a.at - b.at || a.f.localeCompare(b.f));
 		const last = files.at(-1);
-		return last ? join(dir, last) : undefined;
+		return last ? join(dir, last.f) : undefined;
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * The name of a review report: what it is (workflow-review), which plan, and when, in the user's own time (2026-10-24-0415).
+ * Problem: it was "20261024T041500-<plan>.md", the date run together and in UTC, which read as noise.
+ */
+export function reviewFileName(slug: string, when: Date): string {
+	const p = (n: number) => String(n).padStart(2, "0");
+	const date = `${when.getFullYear()}-${p(when.getMonth() + 1)}-${p(when.getDate())}`;
+	return `workflow-review-${slug}-${date}-${p(when.getHours())}${p(when.getMinutes())}.md`;
 }
 
 export function askContext(question: string, env: NodeJS.ProcessEnv = process.env): string {
@@ -116,9 +132,8 @@ async function review(pi: ExtensionAPI, args: string[], ctx: ExtensionCommandCon
 	const report = renderReport(run);
 	const paths = faroPaths();
 	mkdirSync(paths.reports, { recursive: true });
-	const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*$/, "");
 	const slug = (run.plan?.split("/").pop()?.replace(/\.md$/, "") ?? root.name).replace(/[^\w-]+/g, "-");
-	const file = join(paths.reports, `${stamp}-${slug}.md`);
+	const file = join(paths.reports, reviewFileName(slug, new Date()));
 	writeFileSync(file, `${report}\n`);
 	// Problem: the report went into the session as a message, which filled the screen and spent tokens the model did not
 	// need. Solution: the report stays in its file; the model gets only the path and writes its recommendations there.

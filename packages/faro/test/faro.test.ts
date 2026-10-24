@@ -7,6 +7,7 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +17,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { Journal, readJournal } from "agent-link-core";
 import type { TranscriptRoots } from "agent-transcripts";
 import { answersText, pickedSkillsText, showPicker, skillPickerQuestion } from "../src/extensions/ask.ts";
-import { askContext, reviewInstructions } from "../src/extensions/workflow.ts";
+import { askContext, latestReport, reviewFileName, reviewInstructions } from "../src/extensions/workflow.ts";
 import { piCommand, runFaro, withSkillsDir } from "../src/launcher.ts";
 import { LOGO_WIDTH, logoLines } from "../src/logo.ts";
 import { EXTENSIONS, faroPaths, PI_CLI, SKILL_GROUP_DIRS, SKILLS_DIR } from "../src/paths.ts";
@@ -598,4 +599,25 @@ test("the picker shows a window of the rows that fits the terminal, and the curs
 	assert.ok(lines.length <= 20, "still fits after moving down");
 	assert.match(lines.join("\n"), /Done/, "the last row (Done) is reachable");
 	assert.match(lines.join("\n"), /↑ \d+ more/);
+});
+
+test("a review report is named for its plan and its date, and the newest one is found by when it was written", (t) => {
+	assert.equal(
+		reviewFileName("japan-trip-map", new Date(2026, 9, 24, 4, 5)),
+		"workflow-review-japan-trip-map-2026-10-24-0405.md",
+	);
+	const dir = mkdtempSync(join(tmpdir(), "faro-reports-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	assert.equal(latestReport(dir), undefined);
+	// Names that do not sort in time order: the file's own time decides.
+	writeFileSync(join(dir, "workflow-review-zzz-2026-10-24-0900.md"), "x");
+	writeFileSync(join(dir, "workflow-review-aaa-2026-10-24-1000.md"), "x");
+	writeFileSync(join(dir, "20261024T000000-old.md"), "x");
+	for (const [name, secs] of [
+		["workflow-review-zzz-2026-10-24-0900.md", 1000],
+		["workflow-review-aaa-2026-10-24-1000.md", 2000],
+		["20261024T000000-old.md", 500],
+	] as const)
+		utimesSync(join(dir, name), secs, secs);
+	assert.equal(latestReport(dir), join(dir, "workflow-review-aaa-2026-10-24-1000.md"));
 });
