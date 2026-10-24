@@ -103,10 +103,12 @@ export async function loginClaudeCode(callbacks: LoginCallbacks, deps: LoginDeps
 	return { refresh: "", access: MARKER, expires: Date.now() + A_YEAR, email: account?.email };
 }
 
+// No `apiKey` here, on purpose.
+// Problem: a placeholder apiKey made pi list "Claude sub" as "API key configured" before anyone logged in.
+// Solution: the provider has only its OAuth login, so it reads as not configured until the login is done.
 export default function (pi: ExtensionAPI) {
 	pi.registerProvider(PROVIDER_ID, {
 		baseUrl: "claude-code-login",
-		apiKey: "not-used",
 		api: "anthropic-messages",
 		models: [],
 		oauth: {

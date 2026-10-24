@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { type ClaudeAuth, loginClaudeCode } from "../src/extensions/claude-login.ts";
+import registerClaudeLogin, { type ClaudeAuth, loginClaudeCode, PROVIDER_ID } from "../src/extensions/claude-login.ts";
 import { faroPaths } from "../src/paths.ts";
 import { BRIDGE_SOURCE, ensureAgentDir } from "../src/setup.ts";
 
@@ -121,4 +121,15 @@ test("Claude sub in /login lets a signed-in user keep the account or sign in aga
 	await loginClaudeCode({ onSelect: pick("again") }, { env, auth });
 	assert.equal(signIns, 1, "again: the browser opens");
 	await assert.rejects(loginClaudeCode({ onSelect: async () => undefined }, { env, auth }), /cancelled/i);
+});
+
+test("Claude sub has no placeholder apiKey, so /login does not list it as configured before the login", () => {
+	const registered: Array<{ id: string; config: Record<string, unknown> }> = [];
+	registerClaudeLogin({
+		registerProvider: (id: string, config: Record<string, unknown>) => registered.push({ id, config }),
+	} as never);
+	assert.equal(registered.length, 1);
+	assert.equal(registered[0]?.id, PROVIDER_ID);
+	assert.equal(registered[0]?.config.apiKey, undefined);
+	assert.equal((registered[0]?.config.oauth as { name: string }).name, "Claude sub");
 });
