@@ -12,8 +12,8 @@ You lead the user from "I want X" to a written, validated plan, and prepare the 
 write the code and never run the plan yourself: the executor does, in its own pane, without the user.
 
 ```
-1 starting point ─► 2A has a path:  investigate ─► pick skills ─► grill-me ─► write plan ─► validate ─► hand off
-                └► 2B from zero:    brainstorm  ─► investigate ─► pick skills ─────────────► write plan ─► validate ─► hand off
+1 starting point ─► 2A has a path:  read the repo ─► pick skills ─► grill-me ─► write plan ─► validate ─► hand off
+                └► 2B from zero:    brainstorm  ─► read the repo ─► pick skills ─────────────► write plan ─► validate ─► hand off
 ```
 
 ## Rules for the whole skill
@@ -22,9 +22,13 @@ write the code and never run the plan yourself: the executor does, in its own pa
   as chat text. One call holds up to 4 questions;
   each has 2-4 options (up to 16 when `multiSelect` is true), your recommended option first, its label ending in
   "(Recommended)". The user can always type their own answer. Write questions in the user's language.
-- **Facts are yours, decisions are theirs.** Read the repo, docs and files yourself. For research outside the repo (a
-  library, a site, a tool), launch a helper with agent-link `spawn` (for example `opencode` to search the web) and keep
-  going while it works. Never ask the user for something you can look up.
+- **Until the plan file is written, all you do is ask the user and read local files.** You spawn nothing: no agents,
+  no helpers, no research, no web search, and nothing runs in the background. The flow up to `docs/plans/<slug>.md`
+  is questions to the user and reading the repo, nothing else. Research the work needs (a library, a site, prices,
+  attractions, how to get somewhere) is not done by you: write it into the plan as a task for an agent (for example
+  `opencode`), which the executor runs. The only `spawn` in this skill is the handoff in Step 6.
+- **Facts in the repo are yours, decisions are theirs.** Read the repo, docs and files yourself. Never ask the user
+  for something you can read in the repo.
 - Paths: this skill's folder is `<skills>/pre-build/planner/`. The catalog is `<skills>/catalog.json`; a skill lives at
   `<skills>/<group>/<name>/SKILL.md`. Resolve `<skills>` from this file's location and write **absolute** paths in the
   plan, because workers in other harnesses read them.
@@ -44,9 +48,10 @@ obvious ("build exactly this", or "I don't know what to build"), say which branc
 
 In this order; the order matters.
 
-1. **Investigate.** Read what the decisions depend on: README, AGENTS.md or CLAUDE.md, the package files, the code the
-   idea touches, docs it names. Use helpers for anything outside the repo. Write 3-6 lines of findings in the chat
-   (stack, constraints, relevant files, open facts) so the next steps rest on evidence.
+1. **Read the repo.** Read what the decisions depend on: README, AGENTS.md or CLAUDE.md, the package files, the code
+   the idea touches, docs it names. Do not research anything outside the repo and do not spawn a helper: what is
+   unknown becomes a research task in the plan. Write 3-6 lines of findings in the chat (stack, constraints, relevant
+   files, open facts) so the next steps rest on evidence.
 2. **Pick the development skills** (Step 3).
 3. **Offer grill-me.** Its own `ask_user_question` call, sent only after the skills answer has come back: never in
    the same call as the skills picker. Stress-test the idea with `grilling` (Matt Pocock), or go straight to the
@@ -61,7 +66,7 @@ In this order; the order matters.
 1. **Brainstorm to a direction.** Find out, with `ask_user_question`, what they want to achieve, for whom, what success
    looks like and what limits apply. Propose 2-3 concrete directions with their trade-offs and recommend one. Converge
    on a one-paragraph goal and confirm it with the user.
-2. **Investigate** the repo and sources as in 2A.1, when there is a repo.
+2. **Read the repo** as in 2A.1, when there is a repo. No research and no helpers.
 3. **Pick the development skills** (Step 3), with a clear recommendation: assume the user does not know how the skills
    differ, so say in one line what each one would change in this work.
 4. When the goal is clear and the skills are chosen, **write the plan** (Step 4).
@@ -173,6 +178,7 @@ tokens and time. Then end your turn. Do not start post-build or extra skills: th
 
 - A question in chat text instead of `ask_user_question`.
 - Writing code, or running the plan's tasks yourself.
+- Spawning an agent or helper, or researching anything, before the plan file is written.
 - A skill in the plan the user did not pick, or a model written into a skill instead of the plan.
 - Asking for the skills with `ask_user_question` or a hand-made list instead of `pick_skills`.
 - A task without harness, model, skills, acceptance and validation, or one that depends on this conversation.

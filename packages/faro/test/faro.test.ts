@@ -15,7 +15,7 @@ import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { Journal, readJournal } from "agent-link-core";
 import type { TranscriptRoots } from "agent-transcripts";
-import { answersText, pickedSkillsText, skillPickerQuestion } from "../src/extensions/ask.ts";
+import { answersText, pickedSkillsText, showPicker, skillPickerQuestion } from "../src/extensions/ask.ts";
 import { askContext, reviewInstructions } from "../src/extensions/workflow.ts";
 import { piCommand, runFaro, withSkillsDir } from "../src/launcher.ts";
 import { LOGO_WIDTH, logoLines } from "../src/logo.ts";
@@ -573,4 +573,27 @@ test("pick_skills returns only the picked skills, with their SKILL.md paths", ()
 		pickedSkillsText({ cancelled: false, answers: [{ header: "Skills", picked: [] }] }, built.names, catalog),
 		/picked no skills/,
 	);
+});
+
+test("the picker shows a window of the rows that fits the terminal, and the cursor can reach the last one", () => {
+	const options = Array.from({ length: 16 }, (_, i) => ({ label: `option ${i + 1}`, description: `why ${i + 1}` }));
+	let component: { render(w: number): string[]; handleInput(d: string): void } | undefined;
+	const tui = { terminal: { rows: 20 }, requestRender() {} };
+	const theme = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s };
+	const ctx = {
+		ui: {
+			custom: (factory: (...a: unknown[]) => typeof component) => {
+				component = factory(tui, theme, {}, () => {});
+				return new Promise(() => {});
+			},
+		},
+	};
+	void showPicker(ctx as never, [{ header: "Pick", question: "Which?", options, multiSelect: true }]);
+	assert.ok(component);
+	assert.ok(component.render(80).length <= 20, "fits the terminal");
+	for (let i = 0; i < 17; i++) component.handleInput("\u001b[B");
+	const lines = component.render(80);
+	assert.ok(lines.length <= 20, "still fits after moving down");
+	assert.match(lines.join("\n"), /Done/, "the last row (Done) is reachable");
+	assert.match(lines.join("\n"), /↑ \d+ more/);
 });

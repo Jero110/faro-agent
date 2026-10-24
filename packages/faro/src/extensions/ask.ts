@@ -167,7 +167,7 @@ export function pickedSkillsText(result: AskResult, names: string[], catalog: Ca
 }
 
 /** Shows the picker for `questions` and resolves with the user's answers (Esc: cancelled). */
-function showPicker(ctx: ExtensionContext, questions: PickerQuestion[]): Promise<AskResult> {
+export function showPicker(ctx: ExtensionContext, questions: PickerQuestion[]): Promise<AskResult> {
 	return ctx.ui.custom<AskResult>((tui, theme, _kb, done) => {
 		const multi = questions.length > 1;
 		let tab = 0;
@@ -291,11 +291,11 @@ function showPicker(ctx: ExtensionContext, questions: PickerQuestion[]): Promise
 			if (cached) return cached;
 			const w = Math.max(1, width);
 			const lines: string[] = [];
-			const wrap = (prefix: string, t: string) => {
+			const wrap = (prefix: string, t: string, out: string[] = lines) => {
 				const pw = visibleWidth(prefix);
 				const parts = wrapTextWithAnsi(t, Math.max(1, w - pw));
 				parts.forEach((p, i) => {
-					lines.push(`${i === 0 ? prefix : " ".repeat(pw)}${p}`);
+					out.push(`${i === 0 ? prefix : " ".repeat(pw)}${p}`);
 				});
 			};
 			lines.push(theme.fg("accent", "─".repeat(w)));
@@ -331,13 +331,30 @@ function showPicker(ctx: ExtensionContext, questions: PickerQuestion[]): Promise
 				wrap(" ", theme.fg("text", theme.bold(q.question)));
 				if (q.multiSelect) wrap(" ", theme.fg("dim", "Choose any: Space or Enter to tick, then Done"));
 				lines.push("");
-				rows().forEach((row, i) => {
+				const blocks = rows().map((row, i) => {
+					const out: string[] = [];
 					const here = i === cursor;
 					const box = row.kind === "option" && q.multiSelect ? (checked[tab]?.has(row.index) ? "[x] " : "[ ] ") : "";
 					const num = row.kind === "option" ? `${row.index + 1}. ` : "";
-					wrap(here ? theme.fg("accent", "> ") : "  ", theme.fg(here ? "accent" : "text", `${box}${num}${row.label}`));
-					if (row.description) wrap("     ", theme.fg("muted", row.description));
+					wrap(
+						here ? theme.fg("accent", "> ") : "  ",
+						theme.fg(here ? "accent" : "text", `${box}${num}${row.label}`),
+						out,
+					);
+					if (row.description) wrap("     ", theme.fg("muted", row.description), out);
+					return out;
 				});
+				// Problem: with many options the list was taller than the terminal, so the rows below the screen (and
+				// Done) could not be reached. Solution: show only the window of rows that fits, always holding the cursor.
+				const room = Math.max(4, (tui.terminal.rows || 24) - lines.length - (typing ? 12 : 6));
+				const height = (a: number, b: number) => blocks.slice(a, b).reduce((n, x) => n + x.length, 0);
+				let start = Math.min(cursor, blocks.length - 1);
+				let end = start + 1;
+				while (end < blocks.length && height(start, end + 1) <= room) end++;
+				while (start > 0 && height(start - 1, end) <= room) start--;
+				if (start > 0) lines.push(theme.fg("dim", `  ↑ ${start} more`));
+				for (const b of blocks.slice(start, end)) lines.push(...b);
+				if (end < blocks.length) lines.push(theme.fg("dim", `  ↓ ${blocks.length - end} more`));
 				if (typing) {
 					lines.push("");
 					for (const l of editor.render(Math.max(1, w - 2))) lines.push(` ${l}`);
