@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import registerClaudeLogin, { type ClaudeAuth, loginClaudeCode, PROVIDER_ID } from "../src/extensions/claude-login.ts";
+import registerClaudeLogin, { type ClaudeAuth, loginClaudeCode, PROVIDER_ID, registerBridgeProvider } from "../src/extensions/claude-login.ts";
 import { faroPaths } from "../src/paths.ts";
 import { BRIDGE_SOURCE, ensureAgentDir } from "../src/setup.ts";
 
@@ -132,4 +132,33 @@ test("Claude sub has no placeholder apiKey, so /login does not list it as config
 	assert.equal(registered[0]?.id, PROVIDER_ID);
 	assert.equal(registered[0]?.config.apiKey, undefined);
 	assert.equal((registered[0]?.config.oauth as { name: string } | undefined)?.name, "Claude sub");
+});
+
+test("the login registers the bridge's provider itself, so its models are there without /reload", () => {
+	const registered: Array<{ id: string; config: unknown }> = [];
+	const calls: string[] = [];
+	const pi = { registerProvider: (id: string, config: unknown) => registered.push({ id, config }), on: () => calls.push("on") };
+	const config = { apiKey: "not-used", models: [{ id: "m" }] };
+	const ok = registerBridgeProvider(pi as never, (p) => {
+		p.on("session_start" as never, (() => {}) as never);
+		p.registerProvider("claude-bridge", config as never);
+	});
+	assert.equal(ok, true);
+	assert.deepEqual(registered, [{ id: "claude-bridge", config }], "only the provider is taken");
+	assert.deepEqual(calls, [], "its events are not registered late");
+	assert.equal(
+		registerBridgeProvider(pi as never, () => {}),
+		false,
+		"a bridge without a provider is not activated",
+	);
+});
+
+test("Claude sub activates the bridge after the sign-in, and only asks for /reload when that was not possible", async (t) => {
+	const { home, env } = setupHome(t, true);
+	bridgeInstalled(home, env);
+	const progress: string[] = [];
+	await loginClaudeCode({ onProgress: (m) => progress.push(m) }, { env, auth: signedIn, activate: async () => true });
+	assert.doesNotMatch(progress.join("\n"), /reload/);
+	await loginClaudeCode({ onProgress: (m) => progress.push(m) }, { env, auth: signedIn, activate: async () => false });
+	assert.match(progress.join("\n"), /reload/);
 });

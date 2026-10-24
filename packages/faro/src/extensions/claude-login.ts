@@ -8,9 +8,10 @@
 // Code's own: when `claude` is not logged in (or the user asks to sign in again) it opens the browser with
 // `claude auth login --claudeai` and waits for it.
 import { spawn, spawnSync } from "node:child_process";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { faroPaths } from "../paths.ts";
-import { ensureBridge, type Run } from "../setup.ts";
+import { BRIDGE_PACKAGE, ensureBridge, type Run } from "../setup.ts";
 
 export const PROVIDER_ID = "claude-code-login";
 /** The bridge has no token of its own; this marks the login as done. */
@@ -64,6 +65,8 @@ export interface LoginDeps {
 	env?: NodeJS.ProcessEnv;
 	run?: Run;
 	auth?: ClaudeAuth;
+	/** Makes the bridge's models available now; false when that could not be done here (then /reload does it). */
+	activate?: () => Promise<boolean>;
 }
 
 const describe = (a: ClaudeAccount) => [a.email, a.plan && `Claude ${a.plan}`].filter(Boolean).join(" · ");
@@ -99,21 +102,56 @@ export async function loginClaudeCode(callbacks: LoginCallbacks, deps: LoginDeps
 		account = auth.status(env);
 		if (!account) throw new Error("Claude Code is still not signed in. Try again.");
 	}
-	callbacks.onProgress?.("Claude sub ready: run /reload, then pick a [claude-bridge] model in /model");
+	if (!(await deps.activate?.())) callbacks.onProgress?.("Claude sub ready: run /reload, then pick a model in /model");
 	return { refresh: "", access: MARKER, expires: Date.now() + A_YEAR, email: account?.email };
 }
 
 // No `apiKey` here, on purpose.
 // Problem: a placeholder apiKey made pi list "Claude sub" as "API key configured" before anyone logged in.
 // Solution: the provider has only its OAuth login, so it reads as not configured until the login is done.
+/**
+ * Runs the bridge's factory only to take its provider (models and stream) and registers that provider on `pi`.
+ * Problem: the bridge's models appeared only after /reload, so right after the login /model had nothing to pick
+ * and a message failed with "No API key found for the selected model". Solution: the login registers the
+ * provider itself. The bridge's tools and events are left to /reload and the next start, when pi loads it whole.
+ */
+export function registerBridgeProvider(pi: ExtensionAPI, factory: (pi: ExtensionAPI) => void): boolean {
+	let found: { id: string; config: unknown } | undefined;
+	const recorder = new Proxy({} as ExtensionAPI, {
+		get: (_target, prop) =>
+			prop === "registerProvider"
+				? (id: string, config: unknown) => {
+						found = { id, config };
+					}
+				: () => undefined,
+	});
+	factory(recorder);
+	if (!found) return false;
+	pi.registerProvider(found.id, found.config as never);
+	return true;
+}
+
+/** The bridge's factory, loaded from its files in Faro's agent dir. */
+async function loadBridge(env: NodeJS.ProcessEnv): Promise<(pi: ExtensionAPI) => void> {
+	const file = join(faroPaths(env).agentDir, "npm", "node_modules", BRIDGE_PACKAGE, "src", "index.ts");
+	return ((await import(file)) as { default: (pi: ExtensionAPI) => void }).default;
+}
+
 export default function (pi: ExtensionAPI) {
+	const activate = async (): Promise<boolean> => {
+		try {
+			return registerBridgeProvider(pi, await loadBridge(process.env));
+		} catch {
+			return false;
+		}
+	};
 	pi.registerProvider(PROVIDER_ID, {
 		baseUrl: "claude-code-login",
 		api: "anthropic-messages",
 		models: [],
 		oauth: {
 			name: "Claude sub",
-			login: (callbacks) => loginClaudeCode(callbacks),
+			login: (callbacks) => loginClaudeCode(callbacks, { activate }),
 			refreshToken: async (credentials) => ({ ...credentials, expires: Date.now() + A_YEAR }),
 			getApiKey: (credentials) => credentials.access,
 		},
