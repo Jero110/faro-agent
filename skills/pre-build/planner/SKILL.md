@@ -118,6 +118,12 @@ What must be true when this is done, from the user's side, with one concrete exa
 - Pick from what agent-link offers (its spawn tool lists the harnesses: claude, codex, opencode, faro, pi) and what
   the user asked for. The model is the one the user named, else `default` (the harness's own default), else your
   choice with the reason under Assumptions. No skill fixes a model.
+- **The Model column holds an exact id, never the user's words.** A model named in words ("the small one", a name with
+  spaces) is not an id: pi matches it loosely and can land on a provider the user never logged in to, and the agent
+  fails with "Provider is not configured". Before writing the plan, resolve each named model with
+  `FARO_NO_LINK=1 faro --list-models <words>`: it prints only models of providers the user is logged in to. Write the
+  one it prints as `<provider>/<model-id>`. When several are printed, ask with `ask_user_question`; when none, tell the
+  user and ask for another. For a harness other than faro, use the id that harness takes (its own model list).
 
 ## Execution
 Linear or split between agents, and why. Which tasks run in parallel and which wait for others (a small dependency
@@ -159,8 +165,8 @@ Do not hand off on "sounds good" or silence: wait for the explicit choice.
 
 Launch the executor with agent-link `spawn`:
 
-- `harness: "faro"`, `name: "executor"`, `handoff: true`, `model`: the user's choice for the executor, else leave
-  it unset.
+- `harness: "faro"`, `name: "executor"`, `handoff: true`, `model`: the exact `<provider>/<model-id>` resolved in Step 4
+  for the executor, else leave it unset. Never pass the user's words.
 - `task`:
 
   ```
@@ -182,4 +188,5 @@ tokens and time. Then end your turn. Do not start post-build or extra skills: th
 - A skill in the plan the user did not pick, or a model written into a skill instead of the plan.
 - Asking for the skills with `ask_user_question` or a hand-made list instead of `pick_skills`.
 - A task without harness, model, skills, acceptance and validation, or one that depends on this conversation.
+- A model written as the user said it instead of an exact `<provider>/<model-id>` from `--list-models`.
 - Handing off before the user explicitly approved.

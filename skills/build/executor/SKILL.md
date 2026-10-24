@@ -32,6 +32,10 @@ the format; you rarely need it.
 - **Every task goes to its own agent with agent-link `spawn`**, with exactly the plan's `harness` and `model` (leave
   `model` unset only when the plan says `default`) and `name` = the task's agent name. A task assigned to "executor"
   you do yourself.
+- **A model must be an exact id.** If a plan's model is words instead of `<provider>/<model-id>`, resolve it first with
+  `FARO_NO_LINK=1 faro --list-models <words>` (it lists only providers the user is logged in to) and spawn with the id
+  it prints; never pass the words, as pi matches them loosely and can pick a provider that is not configured. If an
+  agent fails with "Provider is not configured", the model was not an exact id: fix it and spawn again.
 - Parallel tasks in the same repository each get their own git worktree, so they never edit the same checkout:
   `git worktree add ../<repo>-<task> -b faro/<task>` and pass it as the spawn `cwd`. Linear tasks work in the main
   checkout.
