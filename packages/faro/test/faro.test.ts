@@ -72,6 +72,31 @@ test("without pi's bridge Faro still sets no default provider", (t) => {
 	assert.deepEqual(settings.packages, []);
 });
 
+test("setup leaves the Claude bridge out unless it is asked for", (t) => {
+	const { home, env } = tempHome(t);
+	const bin = join(home, "bin");
+	mkdirSync(bin);
+	writeFileSync(join(bin, "claude"), "#!/bin/sh\n", { mode: 0o755 });
+	const withClaude = { ...env, PATH: bin };
+	const runs: string[][] = [];
+	const fake = (argv: string[]) => {
+		runs.push(argv);
+		return 1;
+	};
+	setup({ paths: faroPaths(withClaude, home), backend: "tmux", home, env: withClaude, out: () => {}, run: fake });
+	assert.equal(runs.length, 0, "Claude Code is on PATH, and the bridge still is not installed");
+	setup({
+		paths: faroPaths(withClaude, home),
+		backend: "tmux",
+		home,
+		env: withClaude,
+		out: () => {},
+		claudeBridge: true,
+		run: fake,
+	});
+	assert.equal(runs.length, 1, "with the option, it is");
+});
+
 test("setup installs the Claude bridge with pi install when Claude Code is there and the bridge is not", (t) => {
 	const { home, env } = tempHome(t);
 	const paths = faroPaths(env, home);

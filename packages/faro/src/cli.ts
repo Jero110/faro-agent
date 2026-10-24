@@ -6,7 +6,9 @@ import { FARO_VERSION, faroPaths } from "./paths.ts";
 import { setup, teardown } from "./setup.ts";
 
 export const USAGE = `usage: faro [pi options] [message]       start Faro (all pi options work)
-       faro setup --backend cmux|tmux   register Faro's MCP servers and profile (install.sh runs this)
+       faro setup --backend cmux|tmux [--claude-bridge]
+                                        register Faro's MCP servers and profile (install.sh runs this);
+                                        --claude-bridge also adds the Claude models on your Claude Code login
        faro uninstall                   undo setup's registrations (keeps ~/.faro)
        faro --version`;
 
@@ -30,7 +32,7 @@ export async function main(argv: readonly string[], env: NodeJS.ProcessEnv = pro
 			err("faro setup: --backend must be cmux or tmux");
 			return 2;
 		}
-		setup({ paths: faroPaths(env, home), backend, home, env, out });
+		setup({ paths: faroPaths(env, home), backend, home, env, out, claudeBridge: rest.includes("--claude-bridge") });
 		return 0;
 	}
 	if (cmd === "uninstall") {

@@ -7,6 +7,7 @@
 # What is missing is installed first: Node.js 24, git, and tmux when you choose tmux (Homebrew on macOS, installing
 # Homebrew itself when needed; apt on Ubuntu, Debian and WSL). --no-deps skips that. --backend cmux|tmux skips the
 # question. --with-harnesses also installs Claude Code, Codex and opencode with npm into ~/.local.
+# --claude-bridge adds the Claude models on your Claude Code login (off by default; never the default model).
 # On Windows, use install.ps1: it sets up WSL2 and runs this script inside it.
 #
 # It puts the code in ~/.faro/src (or uses the checkout it runs from), installs its npm dependencies, links
@@ -23,6 +24,7 @@ ORIG_PATH="$PATH"
 BACKEND=""
 DEPS=yes
 HARNESSES=no
+BRIDGE=no
 HARNESS_PREFIX="${FARO_HARNESS_PREFIX:-$HOME/.local}"
 
 while [ $# -gt 0 ]; do
@@ -32,7 +34,8 @@ while [ $# -gt 0 ]; do
 	--deps) DEPS=yes; shift ;;
 	--no-deps) DEPS=no; shift ;;
 	--with-harnesses) HARNESSES=yes; shift ;;
-	-h | --help) sed -n '2,18p' "$0" 2>/dev/null || true; exit 0 ;;
+	--claude-bridge) BRIDGE=yes; shift ;;
+	-h | --help) sed -n '2,19p' "$0" 2>/dev/null || true; exit 0 ;;
 	*) echo "faro install: unknown option $1" >&2; exit 2 ;;
 	esac
 done
@@ -172,7 +175,9 @@ fi
 
 # 7. MCP servers, Faro's settings and its agent-link profile.
 say "Setting up Faro for $BACKEND"
-node "$DIR/packages/faro/src/cli.ts" setup --backend "$BACKEND"
+SETUP_ARGS=(--backend "$BACKEND")
+[ "$BRIDGE" = yes ] && SETUP_ARGS+=(--claude-bridge)
+node "$DIR/packages/faro/src/cli.ts" setup "${SETUP_ARGS[@]}"
 
 echo
 say "Faro is installed."

@@ -218,6 +218,12 @@ export interface SetupOptions {
 	home: string;
 	env: NodeJS.ProcessEnv;
 	out: (line: string) => void;
+	/**
+	 * Installs the Claude bridge too. Off by default.
+	 * Problem: setup installed the bridge on its own whenever Claude Code was on PATH, so Faro came up with Claude
+	 * models the user never asked for. Solution: the bridge is opt-in (`faro setup --claude-bridge`).
+	 */
+	claudeBridge?: boolean;
 	/** Runs pi install for the Claude bridge (tests pass a fake). */
 	run?: Run;
 }
@@ -234,7 +240,7 @@ export function setup(opts: SetupOptions): void {
 			? `faro: wrote ${join(paths.agentDir, "settings.json")}${dir.copied.length ? ` (copied from ${paths.piAgentDir}: ${dir.copied.join(", ")})` : ""}`
 			: `faro: ${paths.agentDir} already set up`,
 	);
-	ensureBridge(paths, env, out, opts.run);
+	if (opts.claudeBridge) ensureBridge(paths, env, out, opts.run);
 	out(`faro: agent-link profile ${writeFaroProfile(env)}`);
 	install({ home, env, backend, command: mcpCommand(backend), out });
 	if (backend === "cmux") {
